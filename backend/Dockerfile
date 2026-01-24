@@ -11,6 +11,10 @@ COPY uv.lock /app/uv.lock
 COPY pyproject.toml /app/pyproject.toml
 
 RUN PYTHONDONTWRITEBYTECODE=1 uv sync --frozen
+#
+# Ensure pytidb MCP extra is available even if uv.lock cannot resolve >=0.1.0.
+# The registry currently provides pytidb[mcp]<=0.0.13, so install that explicitly.
+RUN . /app/.venv/bin/activate && pip install --no-cache-dir "pytidb[mcp]<=0.0.13"
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Pre-download playwright dependencies.
