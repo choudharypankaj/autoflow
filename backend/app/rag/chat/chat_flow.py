@@ -302,6 +302,42 @@ class ChatFlow:
 
         start_ts, end_ts = matches[0], matches[1]
 
+        # Allow inline agent selection, e.g. "for prod mcp", "using prod mcp"
+        host_name = self.mcp_host_name
+        if not host_name:
+            try:
+                m = re.search(
+                    r"\b(?:for|using|on)\s+([A-Za-z0-9._-]+)\s+mcp\b",
+                    user_question,
+                    flags=re.IGNORECASE,
+                )
+                if m:
+                    candidate = m.group(1).strip()
+                    # Validate against configured MCP hosts and managed agents
+                    SiteSetting.update_db_cache()
+                    ws = getattr(SiteSetting, "mcp_hosts", None) or []
+                    managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
+                    valid_names = set()
+                    for item in ws:
+                        try:
+                            name = str(item.get("text", "")).strip()
+                            if name:
+                                valid_names.add(name.lower())
+                        except Exception:
+                            continue
+                    for item in managed:
+                        try:
+                            name = str(item.get("name", "")).strip()
+                            if name:
+                                valid_names.add(name.lower())
+                        except Exception:
+                            continue
+                    if candidate.lower() in valid_names:
+                        host_name = candidate
+            except Exception:
+                # Non-fatal; just skip inline selection on error
+                pass
+
         # Construct the single allowed SELECT
         sql = (
             "select Time, INSTANCE, query_time, query, rocksdb_key_skipped_count "
@@ -313,7 +349,7 @@ class ChatFlow:
         )
 
         try:
-            result = run_mcp_db_query(sql, host_name=self.mcp_host_name)
+            result = run_mcp_db_query(sql, host_name=host_name)
             # Best-effort formatting
             if isinstance(result, (list, dict)):
                 pretty = json.dumps(result, indent=2, ensure_ascii=False)
@@ -325,10 +361,10 @@ class ChatFlow:
             )
         except Exception as e:
             # Fallback to managed agents if named
-            if self.mcp_host_name:
+            if host_name:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
-                    result = run_managed_mcp_db_query(self.mcp_host_name, sql)
+                    result = run_managed_mcp_db_query(host_name, sql)
                     if isinstance(result, (list, dict)):
                         pretty = json.dumps(result, indent=2, ensure_ascii=False)
                     else:
