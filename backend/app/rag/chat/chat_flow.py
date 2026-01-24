@@ -283,7 +283,7 @@ class ChatFlow:
         """
         # Quick intent filter to avoid accidental triggers
         trigger_patterns = [
-            r"\bslow\s+query\b",
+            r"\bslow\s+queries?\b",
             r"\bCLUSTER_SLOW_QUERY\b",
             r"\brocksdb_key_skipped_count\b",
         ]
