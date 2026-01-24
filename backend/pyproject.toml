@@ -70,7 +70,7 @@ dependencies = [
     "dspy>=2.6.21",
     "litellm>=1.77.5",
     "modelcontextprotocol>=0.1.0",
-    "pytidb[mcp]>=0.1.0",
+    "pytidb[mcp]>=0.0.13",
 ]
 
 
