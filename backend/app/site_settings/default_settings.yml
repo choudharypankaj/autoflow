@@ -1,0 +1,158 @@
+website:
+  title:
+    default: "TiDB.AI"
+    data_type: str
+    description: "The title of the website."
+    client: true
+  description:
+    default: "Knowledge Graph based RAG that built with TiDB Serverless Vector Storage and LlamaIndex"
+    data_type: str
+    description: "The description of the website."
+    client: true
+  homepage_title:
+    default: "Ask anything about TiDB"
+    data_type: str
+    description: "The title of the homepage."
+    client: true
+  homepage_example_questions:
+    default:
+      - "What is TiDB?"
+      - "Does TiDB support FOREIGN KEY?"
+      - "Does TiDB support serverless?"
+    data_type: list
+    description: "The example questions on the homepage."
+    client: true
+  homepage_footer_links:
+    default:
+      - text: "Release Notes"
+        href: "https://autoflow.tidb.ai/releases"
+      - text: "Powered by TiDB"
+        href: "https://tidb.cloud/ai"
+      - text: "© 2024 PingCAP"
+        href: "https://pingcap.com"
+    data_type: list
+    description: "The footer links on the homepage."
+    client: true
+  logo_in_dark_mode:
+    default: "https://tidb.ai/tidb-ai-light.svg"
+    data_type: str
+    description: "The logo in dark mode."
+    client: true
+  logo_in_light_mode:
+    default: "https://tidb.ai/tidb-ai.svg"
+    data_type: str
+    description: "The logo in light mode."
+    client: true
+  social_github:
+    default: "https://github.com/pingcap/tidb.ai"
+    data_type: str
+    description: "The link to the github"
+    client: true
+  social_twitter:
+    default: "https://twitter.com/PingCAP"
+    data_type: str
+    description: "The link to the twitter"
+    client: true
+  social_discord:
+    default: "https://discord.gg/XzSW23Jg9p"
+    data_type: str
+    description: "The link to the discord"
+    client: true
+  ga_id:
+    default: ""
+    data_type: str
+    description: "Google Analytics ID"
+    client: true
+
+custom_js:
+  custom_js_example_questions:
+    default:
+      - "What is TiDB?"
+      - "Does TiDB support FOREIGN KEY?"
+      - "Does TiDB support serverless?"
+    data_type: list
+    description: "The example questions on the custom_js."
+    client: true
+  custom_js_button_label:
+    default: "Ask AI"
+    data_type: str
+    description: "The button label on the custom_js."
+    client: true
+  custom_js_button_img_src:
+    default: "https://tidb.ai/tidb-ai-widget.svg"
+    data_type: str
+    description: "The button image on the custom_js."
+    client: true
+  custom_js_logo_src:
+    default: "https://tidb.ai/tidb-ai-widget.svg"
+    data_type: str
+    description: "The logo on the custom_js."
+    client: true
+
+chat:
+  langfuse_secret_key:
+    default: ""
+    data_type: str
+    description: "The secret key of Langfuse."
+    client: false
+  langfuse_public_key:
+    default: ""
+    data_type: str
+    description: "The public key of Langfuse."
+    client: false
+  langfuse_host:
+    default: "https://us.cloud.langfuse.com"
+    data_type: str
+    description: "The host of Langfuse."
+    client: false
+  enable_post_verifications:
+    default: true
+    data_type: bool
+    description: "Enable post verification for all chats."
+    client: true
+  enable_post_verifications_for_widgets:
+    default: false
+    data_type: bool
+    description: "Enable post verification for chats from js widgets."
+    client: true
+
+upload:
+  max_upload_file_size:
+    default: 10485760    # 10 MiB
+    data_type: int
+    description: "Max body size (in bytes) of upload file."
+    client: true
+
+monitoring:
+  db_monitor_enabled:
+    default: false
+    data_type: bool
+    description: "Enable periodic database monitoring using SQL queries."
+    client: false
+  db_monitor_queries:
+    default: []
+    data_type: list
+    description: "List of monitoring query configs. Each item: {name, sql, operator, threshold, enabled}."
+    client: false
+  db_monitor_notify_sentry:
+    default: true
+    data_type: bool
+    description: "Send Sentry message on monitor failures."
+    client: false
+
+mcp:
+  mcp_host:
+    default: ""
+    data_type: str
+    description: "MCP server base URL used by tools/clients."
+    client: false
+  mcp_hosts:
+    default: []
+    data_type: list
+    description: "List of MCP servers: items are { text: <name>, href: <ws(s) URL> }"
+    client: true
+  managed_mcp_agents:
+    default: []
+    data_type: list
+    description: "Managed MCP agents with TiDB credentials. Items: { name, tidb_host, tidb_port, tidb_username, tidb_password, tidb_database }"
+    client: false
