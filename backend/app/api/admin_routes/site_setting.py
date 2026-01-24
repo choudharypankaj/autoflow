@@ -1,4 +1,6 @@
 import asyncio
+import os
+import sys
 from typing import Any, Dict, List
 from pydantic import BaseModel
 from http import HTTPStatus
@@ -122,6 +124,7 @@ def update_site_setting(
                 "TIDB_USERNAME": str(agent.get("tidb_username", "")),
                 "TIDB_PASSWORD": str(agent.get("tidb_password", "")),
                 "TIDB_DATABASE": str(agent.get("tidb_database", "")),
+                **os.environ,  # inherit PATH, VIRTUAL_ENV, etc. so subprocess can find deps
             }
             # Basic sanity
             if not all(env.values()):
@@ -129,7 +132,8 @@ def update_site_setting(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail="managed_mcp_agents entries must include tidb_host, tidb_port, tidb_username, tidb_password, tidb_database",
                 )
-            cmd = ["python", "-m", "pytidb.ext.mcp"]
+            # Use the same interpreter running this process to ensure deps are available
+            cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
             async with StdioClient(cmd, env=env) as client:  # type: ignore
                 await client.initialize()
                 # Quick connectivity test
