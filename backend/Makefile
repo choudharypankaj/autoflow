@@ -50,4 +50,4 @@ dev_mcp_server:
 		echo "Please export TIDB_HOST, TIDB_PORT, TIDB_USERNAME, TIDB_PASSWORD, TIDB_DATABASE"; \
 		exit 1; \
 	fi
-	@uv run -m pytidb.ext.mcp
+	@python -m pytidb.ext.mcp
