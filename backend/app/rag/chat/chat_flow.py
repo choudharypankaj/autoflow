@@ -373,7 +373,7 @@ class ChatFlow:
                 result = run_mcp_db_query(sql, host_name=host_name)
             # Best-effort formatting
             if isinstance(result, (list, dict)):
-                pretty = json.dumps(result, indent=2, ensure_ascii=False)
+                pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
             else:
                 pretty = str(result)
             return (
@@ -388,7 +388,7 @@ class ChatFlow:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
                     result = run_managed_mcp_db_query(host_name, sql)
                     if isinstance(result, (list, dict)):
-                        pretty = json.dumps(result, indent=2, ensure_ascii=False)
+                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
                     else:
                         pretty = str(result)
                     return (
@@ -413,7 +413,7 @@ class ChatFlow:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
                     result = run_managed_mcp_db_query(fallback_name, sql)
                     if isinstance(result, (list, dict)):
-                        pretty = json.dumps(result, indent=2, ensure_ascii=False)
+                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
                     else:
                         pretty = str(result)
                     return (
