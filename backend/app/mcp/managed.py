@@ -19,10 +19,55 @@ def _get_agent_config(name: str) -> Dict[str, Any]:
     raise ManagedMCPAgentNotFound(f"Managed MCP agent '{name}' not found")
 
 
+def _run_direct_db_query(env: Dict[str, str], sql: str) -> Any:
+    """
+    Fallback path when modelcontextprotocol isn't available:
+    run the SQL directly using PyMySQL with provided env credentials.
+    """
+    try:
+        import pymysql  # type: ignore
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "pymysql is not installed. Install it in the backend image to enable direct DB fallback."
+        ) from e
+
+    host = env.get("TIDB_HOST", "")
+    port = int(env.get("TIDB_PORT", "0") or 0)
+    user = env.get("TIDB_USERNAME", "")
+    password = env.get("TIDB_PASSWORD", "")
+    database = env.get("TIDB_DATABASE", "")
+    if not (host and port and user and password and database):
+        raise RuntimeError("Invalid DB credentials for direct query fallback.")
+
+    conn = pymysql.connect(  # type: ignore
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+        connect_timeout=8,
+        read_timeout=30,
+        write_timeout=30,
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,  # type: ignore[attr-defined]
+    )
+    try:
+        with conn.cursor() as cur:  # type: ignore
+            cur.execute(sql)
+            rows = cur.fetchall()
+            return rows
+    finally:
+        conn.close()
+
+
 async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]) -> Any:
     try:
         from modelcontextprotocol.client.stdio import StdioClient  # type: ignore
     except Exception as e:
+        # Graceful fallback: if we're running a db_query, execute directly via PyMySQL
+        if tool == "db_query":
+            sql = str(params.get("sql", ""))
+            return _run_direct_db_query(env, sql)
         raise RuntimeError(
             "modelcontextprotocol is not installed or incompatible. "
             "Please install 'modelcontextprotocol' in the backend environment."
