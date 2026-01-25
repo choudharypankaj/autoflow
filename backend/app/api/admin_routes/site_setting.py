@@ -109,40 +109,55 @@ def update_site_setting(
                 detail="managed_mcp_agents must be a list of agent configs",
             )
 
-        async def _check_stdio_agent(agent: Dict[str, Any]) -> None:
-            try:
-                # Local import to avoid hard dependency if unused
-                from modelcontextprotocol.client.stdio import StdioClient  # type: ignore
-            except Exception:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail="modelcontextprotocol is not installed on server",
-                )
-            env = {
-                "TIDB_HOST": str(agent.get("tidb_host", "")),
-                "TIDB_PORT": str(agent.get("tidb_port", "")),
-                "TIDB_USERNAME": str(agent.get("tidb_username", "")),
-                "TIDB_PASSWORD": str(agent.get("tidb_password", "")),
-                "TIDB_DATABASE": str(agent.get("tidb_database", "")),
-                **os.environ,  # inherit PATH, VIRTUAL_ENV, etc. so subprocess can find deps
-            }
-            # Basic sanity
-            if not all(env.values()):
+        async def _check_tidb_connection(agent: Dict[str, Any]) -> None:
+            # Validate TiDB connectivity/credentials directly using PyMySQL.
+            # Avoid requiring modelcontextprotocol just for settings validation.
+            tidb_host = str(agent.get("tidb_host", ""))
+            tidb_port = int(agent.get("tidb_port", 0)) if str(agent.get("tidb_port", "")).isdigit() else 0
+            tidb_username = str(agent.get("tidb_username", ""))
+            tidb_password = str(agent.get("tidb_password", ""))
+            tidb_database = str(agent.get("tidb_database", ""))
+            if not (tidb_host and tidb_port and tidb_username and tidb_password and tidb_database):
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail="managed_mcp_agents entries must include tidb_host, tidb_port, tidb_username, tidb_password, tidb_database",
                 )
-            # Use the same interpreter running this process to ensure deps are available
-            cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
-            async with StdioClient(cmd, env=env) as client:  # type: ignore
-                await client.initialize()
-                # Quick connectivity test
-                await client.call_tool("db_query", {"sql": "SELECT 1"})
+            try:
+                import pymysql  # type: ignore
+            except Exception:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail="pymysql is not installed on server",
+                )
+            try:
+                conn = pymysql.connect(
+                    host=tidb_host,
+                    port=tidb_port,
+                    user=tidb_username,
+                    password=tidb_password,
+                    database=tidb_database,
+                    connect_timeout=6,
+                    read_timeout=6,
+                    write_timeout=6,
+                    charset="utf8mb4",
+                    cursorclass=pymysql.cursors.Cursor,  # type: ignore[attr-defined]
+                )
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                        cur.fetchone()
+                finally:
+                    conn.close()
+            except Exception as e:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Failed to connect to TiDB with provided credentials: {e}",
+                )
 
         for agent in agents:
             name = str((agent or {}).get("name", "")).strip() or "<unnamed>"
             try:
-                asyncio.run(asyncio.wait_for(_check_stdio_agent(agent), timeout=12))
+                asyncio.run(asyncio.wait_for(_check_tidb_connection(agent), timeout=12))
             except HTTPException:
                 raise
             except Exception as e:

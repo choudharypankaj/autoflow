@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 from typing import Any, Dict, Optional
 
 from app.site_settings import SiteSetting
@@ -27,7 +28,7 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
             "Please install 'modelcontextprotocol' in the backend environment."
         ) from e
 
-    cmd = ["python", "-m", "pytidb.ext.mcp"]
+    cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
     async with StdioClient(cmd, env=env) as client:  # type: ignore
         await client.initialize()
         return await client.call_tool(tool, params)
