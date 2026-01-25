@@ -1,7 +1,7 @@
 import json
 import re
 import logging
-from datetime import datetime, UTC
+from datetime import datetime, UTC, date, time
 from typing import List, Optional, Generator, Tuple, Any
 from urllib.parse import urljoin
 from uuid import UUID
@@ -42,6 +42,26 @@ from app.mcp.client import run_mcp_db_query
 logger = logging.getLogger(__name__)
 
 MAX_CHAT_RESULT_CHARS = 60000
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime, date, time)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    try:
+        # Last resort stringify
+        return json.loads(json.dumps(value, default=str))
+    except Exception:
+        return str(value)
 
 
 def parse_chat_messages(
@@ -504,7 +524,7 @@ class ChatFlow:
                 tables_rows = explode_tables(result_tables)
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                 # Cache compact meta for follow-ups
-                self._cached_slow_query_meta = {
+                self._cached_slow_query_meta = _json_safe({
                     "type": "slow_query_summary",
                     "host_name": host_name,
                     "start": start_ts,
@@ -512,7 +532,7 @@ class ChatFlow:
                     "digests": result_digest if isinstance(result_digest, list) else [],
                     "instances": result_instance if isinstance(result_instance, list) else [],
                     "tables": tables_rows,
-                }
+                })
                 response_text = (
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
@@ -543,22 +563,20 @@ class ChatFlow:
                 if isinstance(result, list):
                     for r in result[:20]:
                         if isinstance(r, dict):
-                            compact_rows.append(
-                                {
-                                    "Time": r.get("Time"),
-                                    "INSTANCE": r.get("INSTANCE"),
-                                    "query_time": r.get("query_time"),
-                                    "query": r.get("query"),
-                                    "rocksdb_key_skipped_count": r.get("rocksdb_key_skipped_count"),
-                                }
-                            )
-                self._cached_slow_query_meta = {
+                            compact_rows.append({
+                                "Time": _json_safe(r.get("Time")),
+                                "INSTANCE": _json_safe(r.get("INSTANCE")),
+                                "query_time": _json_safe(r.get("query_time")),
+                                "query": _json_safe(r.get("query")),
+                                "rocksdb_key_skipped_count": _json_safe(r.get("rocksdb_key_skipped_count")),
+                            })
+                self._cached_slow_query_meta = _json_safe({
                     "type": "slow_query_rows",
                     "host_name": host_name,
                     "start": start_ts,
                     "end": end_ts,
                     "rows": compact_rows,
-                }
+                })
                 response_text = (
                     "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
                     f"{pretty}"
@@ -572,18 +590,29 @@ class ChatFlow:
             if host_name and isinstance(e, Exception) and "Only ws:// or wss://" in str(e):
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
-                    result = run_managed_mcp_db_query(host_name, sql)
-                    if isinstance(result, (list, dict)):
-                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                    if summary_mode:
+                        rd = run_managed_mcp_db_query(host_name, sql_digest)
+                        ri = run_managed_mcp_db_query(host_name, sql_instance)
+                        rt = run_managed_mcp_db_query(host_name, sql_tables)
+                        text = (
+                            "Slow query summary (managed fallback):\n\n"
+                            "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
+                            "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
+                            "\n\nTables:\n" + json.dumps(rt[:10] if isinstance(rt, list) else rt, indent=2, ensure_ascii=False, default=str)
+                        )
+                        if len(text) > MAX_CHAT_RESULT_CHARS:
+                            text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        return text
                     else:
-                        pretty = str(result)
-                    response_text = (
-                        "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
-                        f"{pretty}"
-                    )
-                    if len(response_text) > MAX_CHAT_RESULT_CHARS:
-                        response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
-                    return response_text
+                        result = run_managed_mcp_db_query(host_name, sql)
+                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
+                        response_text = (
+                            "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
+                            f"{pretty}"
+                        )
+                        if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                            response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        return response_text
                 except Exception as e2:
                     logger.exception("Managed MCP direct attempt failed: %s", e2)
             fallback_name = host_name
@@ -600,18 +629,29 @@ class ChatFlow:
             if fallback_name:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
-                    result = run_managed_mcp_db_query(fallback_name, sql)
-                    if isinstance(result, (list, dict)):
-                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                    if summary_mode:
+                        rd = run_managed_mcp_db_query(fallback_name, sql_digest)
+                        ri = run_managed_mcp_db_query(fallback_name, sql_instance)
+                        rt = run_managed_mcp_db_query(fallback_name, sql_tables)
+                        text = (
+                            "Slow query summary (managed fallback):\n\n"
+                            "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
+                            "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
+                            "\n\nTables:\n" + json.dumps(rt[:10] if isinstance(rt, list) else rt, indent=2, ensure_ascii=False, default=str)
+                        )
+                        if len(text) > MAX_CHAT_RESULT_CHARS:
+                            text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        return text
                     else:
-                        pretty = str(result)
-                    response_text = (
-                        "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
-                        f"{pretty}"
-                    )
-                    if len(response_text) > MAX_CHAT_RESULT_CHARS:
-                        response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
-                    return response_text
+                        result = run_managed_mcp_db_query(fallback_name, sql)
+                        pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
+                        response_text = (
+                            "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
+                            f"{pretty}"
+                        )
+                        if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                            response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        return response_text
                 except Exception as e2:
                     logger.exception("Managed MCP fallback failed: %s", e2)
                     return f"Failed to run slow query via MCP: {e2}"
@@ -969,14 +1009,15 @@ class ChatFlow:
         # attach additional meta if provided
         if extra_meta:
             try:
+                safe_meta = _json_safe(extra_meta)
                 current_meta = getattr(db_assistant_message, "meta", None) or {}
                 if isinstance(current_meta, dict):
-                    current_meta.update(extra_meta)
+                    current_meta.update(safe_meta)
                     db_assistant_message.meta = current_meta
                 else:
-                    db_assistant_message.meta = extra_meta
+                    db_assistant_message.meta = safe_meta
             except Exception:
-                db_assistant_message.meta = extra_meta
+                db_assistant_message.meta = _json_safe(extra_meta)
         db_assistant_message.updated_at = datetime.now(UTC)
         db_assistant_message.finished_at = datetime.now(UTC)
         self.db_session.add(db_assistant_message)
