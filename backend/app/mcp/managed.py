@@ -61,13 +61,14 @@ def _run_direct_db_query(env: Dict[str, str], sql: str) -> Any:
 
 
 async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]) -> Any:
+    # Extract once so fallback never references an undefined variable
+    query_sql = str((params or {}).get("sql", ""))
     try:
         from modelcontextprotocol.client.stdio import StdioClient  # type: ignore
     except Exception as e:
         # Graceful fallback: if we're running a db_query, execute directly via PyMySQL
         if tool == "db_query":
-            sql = str(params.get("sql", ""))
-            return _run_direct_db_query(env, sql)
+            return _run_direct_db_query(env, query_sql)
         raise RuntimeError(
             "modelcontextprotocol is not installed or incompatible. "
             "Please install 'modelcontextprotocol' in the backend environment."
