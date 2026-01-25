@@ -41,7 +41,7 @@ class MCPSlowQueriesRequest(BaseModel):
         limit = self.limit
         # Note: The MCP db_query tool executes raw SQL; we strictly control injected parts.
         return (
-            "SELECT Time, INSTANCE, query_time, query, rocksdb_key_skipped_count "
+            "SELECT Time, INSTANCE, query_time, SUBSTRING(query, 1, 2000) AS query, rocksdb_key_skipped_count "
             "FROM information_schema.CLUSTER_SLOW_QUERY "
             "WHERE is_internal = false "
             f"AND Time BETWEEN '{start}' AND '{end}' "

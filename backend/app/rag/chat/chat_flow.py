@@ -41,6 +41,8 @@ from app.mcp.client import run_mcp_db_query
 
 logger = logging.getLogger(__name__)
 
+MAX_CHAT_RESULT_CHARS = 60000
+
 
 def parse_chat_messages(
     chat_messages: List[ChatMessage],
@@ -344,7 +346,9 @@ class ChatFlow:
 
         # Construct the single allowed SELECT
         sql = (
-            "select Time, INSTANCE, query_time, query, rocksdb_key_skipped_count "
+            "select Time, INSTANCE, query_time, "
+            "substring(query, 1, 2000) as query, "
+            "rocksdb_key_skipped_count "
             "from information_schema.CLUSTER_SLOW_QUERY "
             "where is_internal = false "
             f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
@@ -376,10 +380,13 @@ class ChatFlow:
                 pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
             else:
                 pretty = str(result)
-            return (
+            response_text = (
                 "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
                 f"{pretty}"
             )
+            if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+            return response_text
         except Exception as e:
             # Fallback to managed agents if named or if exactly one managed agent is configured
             # First, if this is a WS scheme error and a host_name was provided, try that name as a managed agent directly.
@@ -391,10 +398,13 @@ class ChatFlow:
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
                     else:
                         pretty = str(result)
-                    return (
+                    response_text = (
                         "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
                         f"{pretty}"
                     )
+                    if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                        response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                    return response_text
                 except Exception as e2:
                     logger.exception("Managed MCP direct attempt failed: %s", e2)
             fallback_name = host_name
@@ -416,10 +426,13 @@ class ChatFlow:
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
                     else:
                         pretty = str(result)
-                    return (
+                    response_text = (
                         "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
                         f"{pretty}"
                     )
+                    if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                        response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                    return response_text
                 except Exception as e2:
                     logger.exception("Managed MCP fallback failed: %s", e2)
                     return f"Failed to run slow query via MCP: {e2}"
