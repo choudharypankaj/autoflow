@@ -302,38 +302,42 @@ class ChatFlow:
 
         start_ts, end_ts = matches[0], matches[1]
 
-        # Allow inline agent selection, e.g. "for prod mcp", "using prod mcp"
+        # Allow inline agent selection, e.g. "for prod mcp", "using prod database", "on prod db"
         host_name = self.mcp_host_name
         if not host_name:
             try:
                 m = re.search(
-                    r"\b(?:for|using|on)\s+([A-Za-z0-9._-]+)\s+mcp\b",
+                    r"\b(?:for|using|on)\s+([A-Za-z0-9._-]+)\s+(?:mcp|db|database)\b",
                     user_question,
                     flags=re.IGNORECASE,
                 )
-                if m:
-                    candidate = m.group(1).strip()
-                    # Validate against configured MCP hosts and managed agents
-                    SiteSetting.update_db_cache()
-                    ws = getattr(SiteSetting, "mcp_hosts", None) or []
-                    managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
-                    valid_names = set()
-                    for item in ws:
-                        try:
-                            name = str(item.get("text", "")).strip()
-                            if name:
-                                valid_names.add(name.lower())
-                        except Exception:
-                            continue
-                    for item in managed:
-                        try:
-                            name = str(item.get("name", "")).strip()
-                            if name:
-                                valid_names.add(name.lower())
-                        except Exception:
-                            continue
-                    if candidate.lower() in valid_names:
-                        host_name = candidate
+                candidate = m.group(1).strip() if m else ""
+                # Validate against configured MCP hosts and managed agents
+                SiteSetting.update_db_cache()
+                ws = getattr(SiteSetting, "mcp_hosts", None) or []
+                managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
+                valid_names = set()
+                for item in ws:
+                    try:
+                        name = str(item.get("text", "")).strip()
+                        if name:
+                            valid_names.add(name.lower())
+                    except Exception:
+                        continue
+                for item in managed:
+                    try:
+                        name = str(item.get("name", "")).strip()
+                        if name:
+                            valid_names.add(name.lower())
+                    except Exception:
+                        continue
+                if candidate and candidate.lower() in valid_names:
+                    host_name = candidate
+                # If still no host_name provided, but exactly one managed agent exists, default to it
+                if not host_name and isinstance(managed, list) and len(managed) == 1:
+                    maybe_name = str((managed[0] or {}).get("name", "")).strip()
+                    if maybe_name:
+                        host_name = maybe_name
             except Exception:
                 # Non-fatal; just skip inline selection on error
                 pass
@@ -348,8 +352,25 @@ class ChatFlow:
             "limit 20"
         )
 
+        # If the selected name corresponds to a managed agent (and not a WS host),
+        # call the managed path directly to avoid WS URL validation errors.
         try:
-            result = run_mcp_db_query(sql, host_name=host_name)
+            SiteSetting.update_db_cache()
+            ws_list = getattr(SiteSetting, "mcp_hosts", None) or []
+            managed_list = getattr(SiteSetting, "managed_mcp_agents", None) or []
+            ws_names = {str((it or {}).get("text", "")).strip().lower() for it in ws_list if it}
+            managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_list if it}
+        except Exception:
+            ws_names, managed_names = set(), set()
+
+        try:
+            if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                # Directly use managed MCP
+                from app.mcp.managed import run_managed_mcp_db_query  # local import
+                result = run_managed_mcp_db_query(host_name, sql)
+            else:
+                # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
+                result = run_mcp_db_query(sql, host_name=host_name)
             # Best-effort formatting
             if isinstance(result, (list, dict)):
                 pretty = json.dumps(result, indent=2, ensure_ascii=False)
@@ -360,11 +381,37 @@ class ChatFlow:
                 f"{pretty}"
             )
         except Exception as e:
-            # Fallback to managed agents if named
-            if host_name:
+            # Fallback to managed agents if named or if exactly one managed agent is configured
+            # First, if this is a WS scheme error and a host_name was provided, try that name as a managed agent directly.
+            if host_name and isinstance(e, Exception) and "Only ws:// or wss://" in str(e):
+                try:
+                    from app.mcp.managed import run_managed_mcp_db_query  # local import
+                    result = run_managed_mcp_db_query(host_name, sql)
+                    if isinstance(result, (list, dict)):
+                        pretty = json.dumps(result, indent=2, ensure_ascii=False)
+                    else:
+                        pretty = str(result)
+                    return (
+                        "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
+                        f"{pretty}"
+                    )
+                except Exception as e2:
+                    logger.exception("Managed MCP direct attempt failed: %s", e2)
+            fallback_name = host_name
+            if not fallback_name:
+                try:
+                    SiteSetting.update_db_cache()
+                    managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
+                    if isinstance(managed, list) and len(managed) == 1:
+                        maybe_name = str((managed[0] or {}).get("name", "")).strip()
+                        if maybe_name:
+                            fallback_name = maybe_name
+                except Exception:
+                    pass
+            if fallback_name:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
-                    result = run_managed_mcp_db_query(host_name, sql)
+                    result = run_managed_mcp_db_query(fallback_name, sql)
                     if isinstance(result, (list, dict)):
                         pretty = json.dumps(result, indent=2, ensure_ascii=False)
                     else:

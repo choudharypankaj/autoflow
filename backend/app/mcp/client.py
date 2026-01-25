@@ -46,6 +46,9 @@ def _select_mcp_host(preferred_name: str | None = None) -> str:
                         return href
             except Exception:
                 continue
+        # If a preferred name was provided but not found among ws hosts,
+        # do not silently fall back to a different host. Force empty to let callers decide.
+        return ""
     # Single host fallback
     single = str(getattr(SiteSetting, "mcp_host", "") or "").strip()
     if single:
@@ -66,6 +69,18 @@ def run_mcp_tool(tool: str, params: Dict[str, Any], *, host_name: str | None = N
     mcp_url = _select_mcp_host(host_name)
     if not mcp_url:
         raise MCPNotConfigured("mcp_host is not configured. Set it in Site Settings.")
+
+    # Support virtual managed hosts: managed://<agent_name>
+    if mcp_url.startswith("managed://"):
+        agent_name = mcp_url[len("managed://") :].strip()
+        if not agent_name:
+            raise ValueError("Invalid managed MCP URL")
+        # For now we support db_query tool via managed agent
+        if tool == "db_query":
+            from app.mcp.managed import run_managed_mcp_db_query  # local import
+
+            return run_managed_mcp_db_query(agent_name, params.get("sql", ""))
+        raise ValueError(f"Tool '{tool}' is not supported via managed MCP host")
 
     if not (mcp_url.startswith("ws://") or mcp_url.startswith("wss://")):
         raise ValueError("Only ws:// or wss:// MCP host URLs are supported.")
