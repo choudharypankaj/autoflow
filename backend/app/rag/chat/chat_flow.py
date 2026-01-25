@@ -344,17 +344,60 @@ class ChatFlow:
                 # Non-fatal; just skip inline selection on error
                 pass
 
-        # Construct the single allowed SELECT
-        sql = (
-            "select Time, INSTANCE, query_time, "
-            "substring(query, 1, 2000) as query, "
-            "rocksdb_key_skipped_count "
-            "from information_schema.CLUSTER_SLOW_QUERY "
-            "where is_internal = false "
-            f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-            "order by rocksdb_key_skipped_count desc "
-            "limit 20"
+        # Determine if user asked for a summary/analysis rather than raw rows
+        summary_mode = any(
+            re.search(p, user_question, flags=re.IGNORECASE)
+            for p in [
+                r"\bsummary\b",
+                r"\bsummarize\b",
+                r"\boverview\b",
+                r"\banaly(?:s|z)e\b",
+                r"\banalysis\b",
+            ]
         )
+
+        # Construct SQLs
+        if summary_mode:
+            sql_digest = (
+                "select "
+                "digest, "
+                "any_value(substring(query, 1, 200)) as sample_query, "
+                "any_value(plan_digest) as plan_digest, "
+                "count(*) as exec_count, "
+                "round(avg(query_time), 3) as avg_s, "
+                "round(max(query_time), 3) as max_s, "
+                "sum(rocksdb_key_skipped_count) as skipped_sum "
+                "from information_schema.CLUSTER_SLOW_QUERY "
+                "where is_internal = false "
+                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                "group by digest "
+                "order by sum(query_time) desc "
+                "limit 10"
+            )
+            sql_instance = (
+                "select "
+                "INSTANCE, "
+                "count(*) as exec_count, "
+                "round(avg(query_time), 3) as avg_s, "
+                "round(sum(query_time), 3) as total_s "
+                "from information_schema.CLUSTER_SLOW_QUERY "
+                "where is_internal = false "
+                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                "group by INSTANCE "
+                "order by total_s desc "
+                "limit 10"
+            )
+        else:
+            sql = (
+                "select Time, INSTANCE, query_time, "
+                "substring(query, 1, 2000) as query, "
+                "rocksdb_key_skipped_count "
+                "from information_schema.CLUSTER_SLOW_QUERY "
+                "where is_internal = false "
+                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                "order by rocksdb_key_skipped_count desc "
+                "limit 20"
+            )
 
         # If the selected name corresponds to a managed agent (and not a WS host),
         # call the managed path directly to avoid WS URL validation errors.
@@ -368,25 +411,75 @@ class ChatFlow:
             ws_names, managed_names = set(), set()
 
         try:
-            if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
-                # Directly use managed MCP
-                from app.mcp.managed import run_managed_mcp_db_query  # local import
-                result = run_managed_mcp_db_query(host_name, sql)
+            if summary_mode:
+                # Run both summaries
+                if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                    from app.mcp.managed import run_managed_mcp_db_query  # local import
+
+                    result_digest = run_managed_mcp_db_query(host_name, sql_digest)
+                    result_instance = run_managed_mcp_db_query(host_name, sql_instance)
+                else:
+                    result_digest = run_mcp_db_query(sql_digest, host_name=host_name)
+                    result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
+
+                # Render concise summary
+                def rows_to_markdown(rows: Any, columns: list[str]) -> str:
+                    if not isinstance(rows, list) or not rows:
+                        return "(no data)"
+                    # normalize dict rows
+                    lines = []
+                    header = " | ".join(columns)
+                    sep = " | ".join(["---"] * len(columns))
+                    lines.append(header)
+                    lines.append(sep)
+                    for r in rows[:10]:
+                        if isinstance(r, dict):
+                            values = [str(r.get(c, "")) for c in columns]
+                        elif isinstance(r, (list, tuple)):
+                            values = [str(x) for x in r[: len(columns)]]
+                        else:
+                            values = [str(r)]
+                        lines.append(" | ".join(values))
+                    return "\n".join(lines)
+
+                digest_md = rows_to_markdown(
+                    result_digest,
+                    ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
+                )
+                instance_md = rows_to_markdown(
+                    result_instance,
+                    ["INSTANCE", "exec_count", "avg_s", "total_s"],
+                )
+                response_text = (
+                    "Slow query summary (by digest):\n\n"
+                    f"{digest_md}\n\n"
+                    "Instance hotspots:\n\n"
+                    f"{instance_md}"
+                )
+                if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                    response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                return response_text
             else:
-                # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
-                result = run_mcp_db_query(sql, host_name=host_name)
-            # Best-effort formatting
-            if isinstance(result, (list, dict)):
-                pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
-            else:
-                pretty = str(result)
-            response_text = (
-                "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
-                f"{pretty}"
-            )
-            if len(response_text) > MAX_CHAT_RESULT_CHARS:
-                response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
-            return response_text
+                # Raw rows path
+                if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                    # Directly use managed MCP
+                    from app.mcp.managed import run_managed_mcp_db_query  # local import
+                    result = run_managed_mcp_db_query(host_name, sql)
+                else:
+                    # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
+                    result = run_mcp_db_query(sql, host_name=host_name)
+                # Best-effort formatting
+                if isinstance(result, (list, dict)):
+                    pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                else:
+                    pretty = str(result)
+                response_text = (
+                    "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
+                    f"{pretty}"
+                )
+                if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                    response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                return response_text
         except Exception as e:
             # Fallback to managed agents if named or if exactly one managed agent is configured
             # First, if this is a WS scheme error and a host_name was provided, try that name as a managed agent directly.
