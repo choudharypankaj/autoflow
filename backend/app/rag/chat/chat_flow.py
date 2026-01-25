@@ -169,6 +169,8 @@ class ChatFlow:
             fast_llm=self._fast_llm,
             knowledge_bases=self.knowledge_bases,
         )
+        # Cached structured meta for slow query runs to power follow-ups
+        self._cached_slow_query_meta: Optional[dict] = None
 
     def chat(self) -> Generator[ChatEvent | str, None, None]:
         try:
@@ -220,6 +222,7 @@ class ChatFlow:
                 knowledge_graph=KnowledgeGraphRetrievalResult(),
                 source_documents=[],
                 annotation_silent=True,
+                extra_meta=self._cached_slow_query_meta,
             )
             return response_text, []
 
@@ -387,6 +390,20 @@ class ChatFlow:
                 "order by total_s desc "
                 "limit 10"
             )
+            # Impacted tables summary (if table_names available in TiDB version)
+            sql_tables = (
+                "select "
+                "table_names, "
+                "count(*) as exec_count, "
+                "round(sum(query_time), 3) as total_s "
+                "from information_schema.CLUSTER_SLOW_QUERY "
+                "where is_internal = false "
+                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                "and table_names is not null and table_names != '' "
+                "group by table_names "
+                "order by total_s desc "
+                "limit 10"
+            )
         else:
             sql = (
                 "select Time, INSTANCE, query_time, "
@@ -418,9 +435,11 @@ class ChatFlow:
 
                     result_digest = run_managed_mcp_db_query(host_name, sql_digest)
                     result_instance = run_managed_mcp_db_query(host_name, sql_instance)
+                    result_tables = run_managed_mcp_db_query(host_name, sql_tables)
                 else:
                     result_digest = run_mcp_db_query(sql_digest, host_name=host_name)
                     result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
+                    result_tables = run_mcp_db_query(sql_tables, host_name=host_name)
 
                 # Render concise summary
                 def rows_to_markdown(rows: Any, columns: list[str]) -> str:
@@ -450,11 +469,57 @@ class ChatFlow:
                     result_instance,
                     ["INSTANCE", "exec_count", "avg_s", "total_s"],
                 )
+                # Normalize table_names into individual tables if CSV-like
+                def explode_tables(rows: Any) -> list[dict]:
+                    exploded: list[dict] = []
+                    if not isinstance(rows, list):
+                        return exploded
+                    for r in rows:
+                        if isinstance(r, dict):
+                            names = str(r.get("table_names", "") or "")
+                            exec_count = r.get("exec_count", 0)
+                            total_s = r.get("total_s", 0)
+                            if names:
+                                parts = [t.strip() for t in names.split(",") if t.strip()]
+                                if parts:
+                                    for t in parts:
+                                        exploded.append({"table": t, "exec_count": exec_count, "total_s": total_s})
+                                else:
+                                    exploded.append({"table": names, "exec_count": exec_count, "total_s": total_s})
+                    # Aggregate duplicates
+                    agg: dict[str, dict] = {}
+                    for e in exploded:
+                        t = e["table"]
+                        if t not in agg:
+                            agg[t] = {"table": t, "exec_count": 0, "total_s": 0}
+                        agg[t]["exec_count"] += int(e.get("exec_count", 0) or 0)
+                        try:
+                            agg[t]["total_s"] += float(e.get("total_s", 0) or 0.0)
+                        except Exception:
+                            pass
+                    # sort by total_s desc
+                    sorted_rows = sorted(agg.values(), key=lambda x: x.get("total_s", 0), reverse=True)[:10]
+                    return sorted_rows
+
+                tables_rows = explode_tables(result_tables)
+                tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
+                # Cache compact meta for follow-ups
+                self._cached_slow_query_meta = {
+                    "type": "slow_query_summary",
+                    "host_name": host_name,
+                    "start": start_ts,
+                    "end": end_ts,
+                    "digests": result_digest if isinstance(result_digest, list) else [],
+                    "instances": result_instance if isinstance(result_instance, list) else [],
+                    "tables": tables_rows,
+                }
                 response_text = (
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Instance hotspots:\n\n"
-                    f"{instance_md}"
+                    f"{instance_md}\n\n"
+                    "Impacted tables:\n\n"
+                    f"{tables_md}"
                 )
                 if len(response_text) > MAX_CHAT_RESULT_CHARS:
                     response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
@@ -473,6 +538,27 @@ class ChatFlow:
                     pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
                 else:
                     pretty = str(result)
+                # Cache compact meta for follow-ups (limit rows)
+                compact_rows: list[dict] = []
+                if isinstance(result, list):
+                    for r in result[:20]:
+                        if isinstance(r, dict):
+                            compact_rows.append(
+                                {
+                                    "Time": r.get("Time"),
+                                    "INSTANCE": r.get("INSTANCE"),
+                                    "query_time": r.get("query_time"),
+                                    "query": r.get("query"),
+                                    "rocksdb_key_skipped_count": r.get("rocksdb_key_skipped_count"),
+                                }
+                            )
+                self._cached_slow_query_meta = {
+                    "type": "slow_query_rows",
+                    "host_name": host_name,
+                    "start": start_ts,
+                    "end": end_ts,
+                    "rows": compact_rows,
+                }
                 response_text = (
                     "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
                     f"{pretty}"
@@ -859,6 +945,7 @@ class ChatFlow:
         knowledge_graph: KnowledgeGraphRetrievalResult = KnowledgeGraphRetrievalResult(),
         source_documents: Optional[List[SourceDocument]] = [],
         annotation_silent: bool = False,
+        extra_meta: Optional[dict] = None,
     ):
         if not annotation_silent:
             yield ChatEvent(
@@ -879,6 +966,17 @@ class ChatFlow:
         db_assistant_message.graph_data = knowledge_graph.to_stored_graph_dict()
         db_assistant_message.content = response_text
         db_assistant_message.post_verification_result_url = post_verification_result_url
+        # attach additional meta if provided
+        if extra_meta:
+            try:
+                current_meta = getattr(db_assistant_message, "meta", None) or {}
+                if isinstance(current_meta, dict):
+                    current_meta.update(extra_meta)
+                    db_assistant_message.meta = current_meta
+                else:
+                    db_assistant_message.meta = extra_meta
+            except Exception:
+                db_assistant_message.meta = extra_meta
         db_assistant_message.updated_at = datetime.now(UTC)
         db_assistant_message.finished_at = datetime.now(UTC)
         self.db_session.add(db_assistant_message)
