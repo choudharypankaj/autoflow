@@ -67,11 +67,10 @@ def _resolve_db_credentials(agent: Dict[str, Any]) -> Dict[str, str]:
 async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]) -> Any:
     cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
     try:
-        from mcp.client import ClientSession  # type: ignore
         from mcp.client.stdio import StdioClient  # type: ignore
     except Exception as e:
         raise RuntimeError(
-            "MCP Python SDK not available (expected mcp.client.ClientSession and mcp.client.stdio). "
+            "MCP Python SDK not available (expected mcp.client.stdio). "
             "Install the official SDK into the app venv, e.g.: "
             "/app/.venv/bin/python -m pip install 'mcp[client] @ "
             "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
