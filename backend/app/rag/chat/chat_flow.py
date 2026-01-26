@@ -878,10 +878,10 @@ class ChatFlow:
                     pretty = "\n".join(lines)
                 else:
                     pretty = _clean_value(parsed_result)
-                # Cache compact meta for follow-ups (limit rows)
+                # Cache raw rows for follow-ups (limited to 20 by query)
                 compact_rows: list[dict] = []
                 if isinstance(rows, list):
-                    for r in rows[:20]:
+                    for r in rows:
                         if isinstance(r, dict):
                             compact_rows.append({
                                 "Time": _json_safe(r.get("Time")),
