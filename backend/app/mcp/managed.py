@@ -18,6 +18,36 @@ from app.models.mcp_database import MCPDatabase
 
 logger = logging.getLogger(__name__)
 def _unwrap_mcp_result(result: Any) -> Any:
+    def _parse_text(text: str) -> Any:
+        # Extract wrapper content when the whole object is stringified
+        match = re.search(r"text='((?:\\'|[^'])*?)'|text=\"((?:\\\"|[^\"])*?)\"", text, flags=re.DOTALL)
+        if match:
+            raw = match.group(1) or match.group(2) or ""
+            try:
+                text = ast.literal_eval(f"'{raw}'" if match.group(1) else f'\"{raw}\"')
+            except Exception:
+                pass
+        # Try JSON / literal eval
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                return parser(text)
+            except Exception:
+                continue
+        # Try to extract JSON substring
+        for opener, closer in [("{", "}"), ("[", "]")]:
+            start = text.find(opener)
+            end = text.rfind(closer)
+            if start != -1 and end != -1 and end > start:
+                chunk = text[start : end + 1]
+                for parser in (json.loads, ast.literal_eval):
+                    try:
+                        return parser(chunk)
+                    except Exception:
+                        continue
+        return text
+
+    if isinstance(result, str):
+        return _parse_text(result)
     if isinstance(result, dict):
         content = result.get("content")
         if isinstance(content, list):
@@ -25,23 +55,8 @@ def _unwrap_mcp_result(result: Any) -> Any:
                 text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
                 if not text:
                     continue
-                # Extract wrapper text if needed
-                if isinstance(text, str) and "TextContent" in text and "text=" in text:
-                    match = re.search(r"text='((?:\\'|[^'])*?)'|text=\"((?:\\\"|[^\"])*?)\"", text, flags=re.DOTALL)
-                    if match:
-                        raw = match.group(1) or match.group(2) or ""
-                        try:
-                            text = ast.literal_eval(f"'{raw}'" if match.group(1) else f'\"{raw}\"')
-                        except Exception:
-                            pass
                 if isinstance(text, str):
-                    try:
-                        return json.loads(text)
-                    except Exception:
-                        try:
-                            return ast.literal_eval(text)
-                        except Exception:
-                            return text
+                    return _parse_text(text)
     return result
 
 
