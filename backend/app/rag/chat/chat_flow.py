@@ -1071,16 +1071,10 @@ class ChatFlow:
                             digest_rows,
                             ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                         )
-                        instance_md = rows_to_markdown(
-                            instance_rows,
-                            ["INSTANCE", "exec_count", "avg_s", "total_s"],
-                        )
                         tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
-                            "Instance hotspots:\n\n"
-                            f"{instance_md}\n\n"
                             "Impacted tables:\n\n"
                             f"{tables_md}"
                         )
@@ -1118,16 +1112,10 @@ class ChatFlow:
                             digest_rows,
                             ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                         )
-                        instance_md = rows_to_markdown(
-                            instance_rows,
-                            ["INSTANCE", "exec_count", "avg_s", "total_s"],
-                        )
                         tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
-                            "Instance hotspots:\n\n"
-                            f"{instance_md}\n\n"
                             "Impacted tables:\n\n"
                             f"{tables_md}"
                         )
