@@ -79,6 +79,24 @@ def _extract_tables_from_sql(sql_text: str) -> list[str]:
             tables.append(t)
     return tables
 
+def _rows_to_markdown(rows: Any, columns: list[str]) -> str:
+    if not isinstance(rows, list) or not rows:
+        return "(no data)"
+    lines = []
+    header = " | ".join(columns)
+    sep = " | ".join(["---"] * len(columns))
+    lines.append(header)
+    lines.append(sep)
+    for r in rows[:10]:
+        if isinstance(r, dict):
+            values = [str(r.get(c, "")) for c in columns]
+        elif isinstance(r, (list, tuple)):
+            values = [str(x) for x in r[: len(columns)]]
+        else:
+            values = [str(r)]
+        lines.append(" | ".join(values))
+    return "\n".join(lines)
+
 
 def parse_chat_messages(
     chat_messages: List[ChatMessage],
@@ -322,6 +340,57 @@ class ChatFlow:
           - 2026-01-14 16:15:00 to 2026-01-14 16:47:00
           - start: 2026-01-14 16:15:00, end: 2026-01-14 16:47:00
         """
+        # 0) Follow-up meta-only path: if user references last/summary/digest/instance/table,
+        # try answering from the last assistant meta immediately.
+        if re.search(r"\b(last|previous|summary|summarize|digest|instance|table)\b", user_question, flags=re.IGNORECASE):
+            try:
+                prior_messages = chat_repo.get_messages(self.db_session, self.db_chat_obj)
+                meta = None
+                for m in reversed(prior_messages):
+                    try:
+                        if getattr(m, "role", "") == MessageRole.ASSISTANT.value and isinstance(m.meta, dict):
+                            t = str(m.meta.get("type", ""))
+                            if t in {"slow_query_summary", "slow_query_rows"}:
+                                meta = m.meta
+                                break
+                    except Exception:
+                        continue
+                if meta and meta.get("type") == "slow_query_summary":
+                    want_instance = bool(re.search(r"\binstance", user_question, flags=re.IGNORECASE))
+                    want_digest = bool(re.search(r"\bdigest", user_question, flags=re.IGNORECASE))
+                    want_table = bool(re.search(r"\btable", user_question, flags=re.IGNORECASE))
+                    digests = meta.get("digests") or []
+                    instances = meta.get("instances") or []
+                    tables = meta.get("tables") or []
+                    chunks: list[str] = []
+                    if want_digest and isinstance(digests, list):
+                        scored = []
+                        for d in digests:
+                            if isinstance(d, dict):
+                                exec_count = float(d.get("exec_count") or 0)
+                                avg_s = float(d.get("avg_s") or 0.0)
+                                total_s = exec_count * avg_s
+                                scored.append({
+                                    "digest": d.get("digest", ""),
+                                    "exec_count": int(exec_count),
+                                    "avg_s": avg_s,
+                                    "total_s": round(total_s, 3),
+                                })
+                        scored.sort(key=lambda x: x["total_s"], reverse=True)
+                        chunks.append("Top digests by total time:\n\n" + _rows_to_markdown(scored, ["digest", "exec_count", "avg_s", "total_s"]))
+                    if want_instance and isinstance(instances, list):
+                        chunks.append("Instances (cached):\n\n" + _rows_to_markdown(instances, ["INSTANCE", "exec_count", "avg_s", "total_s"]))
+                    if want_table and isinstance(tables, list):
+                        chunks.append("Impacted tables (cached):\n\n" + _rows_to_markdown(tables, ["table", "exec_count", "total_s"]))
+                    if chunks:
+                        text = "\n\n".join(chunks)
+                        if len(text) > MAX_CHAT_RESULT_CHARS:
+                            text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        self._cached_slow_query_meta = _json_safe(meta)
+                        return text
+            except Exception:
+                pass
+
         # Quick intent filter to avoid accidental triggers
         trigger_patterns = [
             r"\bslow\s+queries?\b",
