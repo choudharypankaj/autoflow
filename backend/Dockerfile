@@ -31,4 +31,4 @@ COPY . /app/
 # Default number of workers
 ENV WEB_CONCURRENCY=4
 
-CMD ["/app/.venv/bin/fastapi", "run", "app/api_server.py", "--host", "0.0.0.0", "--port", "80", "--workers", "${WEB_CONCURRENCY}"]
+CMD ["sh", "-c", "/app/.venv/bin/fastapi run app/api_server.py --host 0.0.0.0 --port 80 --workers ${WEB_CONCURRENCY:-4}"]
