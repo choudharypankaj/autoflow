@@ -472,39 +472,21 @@ class ChatFlow:
                     result_instance,
                     ["INSTANCE", "exec_count", "avg_s", "total_s"],
                 )
-                # Normalize table_names into individual tables if CSV-like
-                def explode_tables(rows: Any) -> list[dict]:
-                    exploded: list[dict] = []
-                    if not isinstance(rows, list):
-                        return exploded
-                    for r in rows:
-                        if isinstance(r, dict):
-                            names = str(r.get("table_names", "") or "")
-                            exec_count = r.get("exec_count", 0)
-                            total_s = r.get("total_s", 0)
-                            if names:
-                                parts = [t.strip() for t in names.split(",") if t.strip()]
-                                if parts:
-                                    for t in parts:
-                                        exploded.append({"table": t, "exec_count": exec_count, "total_s": total_s})
-                                else:
-                                    exploded.append({"table": names, "exec_count": exec_count, "total_s": total_s})
-                    # Aggregate duplicates
-                    agg: dict[str, dict] = {}
-                    for e in exploded:
-                        t = e["table"]
-                        if t not in agg:
-                            agg[t] = {"table": t, "exec_count": 0, "total_s": 0}
-                        agg[t]["exec_count"] += int(e.get("exec_count", 0) or 0)
-                        try:
-                            agg[t]["total_s"] += float(e.get("total_s", 0) or 0.0)
-                        except Exception:
-                            pass
-                    # sort by total_s desc
-                    sorted_rows = sorted(agg.values(), key=lambda x: x.get("total_s", 0), reverse=True)[:10]
-                    return sorted_rows
-
-                tables_rows = explode_tables(result_tables)
+                # Impacted tables derived from digest sample_query
+                tables_agg: dict[str, dict] = {}
+                if isinstance(result_digest, list):
+                    for r in result_digest:
+                        if not isinstance(r, dict):
+                            continue
+                        sample = r.get("sample_query") or ""
+                        exec_count = float(r.get("exec_count") or 0)
+                        avg_s = float(r.get("avg_s") or 0.0)
+                        total_s = exec_count * avg_s
+                        for t in _extract_tables_from_sql(str(sample)):
+                            agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                            agg["exec_count"] += int(exec_count)
+                            agg["total_s"] += total_s
+                tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                 # Cache compact meta for follow-ups
                 self._cached_slow_query_meta = _json_safe({
@@ -576,12 +558,26 @@ class ChatFlow:
                     if summary_mode:
                         rd = run_managed_mcp_db_query(host_name, sql_digest)
                         ri = run_managed_mcp_db_query(host_name, sql_instance)
-                        rt = run_managed_mcp_db_query(host_name, sql_tables)
+                        # derive tables from digest result
+                        tables_agg: dict[str, dict] = {}
+                        if isinstance(rd, list):
+                            for r in rd:
+                                if not isinstance(r, dict):
+                                    continue
+                                sample = r.get("sample_query") or ""
+                                exec_count = float(r.get("exec_count") or 0)
+                                avg_s = float(r.get("avg_s") or 0.0)
+                                total_s = exec_count * avg_s
+                                for t in _extract_tables_from_sql(str(sample)):
+                                    agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                                    agg["exec_count"] += int(exec_count)
+                                    agg["total_s"] += total_s
+                        tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
                             "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nTables:\n" + json.dumps(rt[:10] if isinstance(rt, list) else rt, indent=2, ensure_ascii=False, default=str)
+                            "\n\nTables:\n" + json.dumps(tables_rows, indent=2, ensure_ascii=False, default=str)
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
@@ -615,12 +611,25 @@ class ChatFlow:
                     if summary_mode:
                         rd = run_managed_mcp_db_query(fallback_name, sql_digest)
                         ri = run_managed_mcp_db_query(fallback_name, sql_instance)
-                        rt = run_managed_mcp_db_query(fallback_name, sql_tables)
+                        tables_agg: dict[str, dict] = {}
+                        if isinstance(rd, list):
+                            for r in rd:
+                                if not isinstance(r, dict):
+                                    continue
+                                sample = r.get("sample_query") or ""
+                                exec_count = float(r.get("exec_count") or 0)
+                                avg_s = float(r.get("avg_s") or 0.0)
+                                total_s = exec_count * avg_s
+                                for t in _extract_tables_from_sql(str(sample)):
+                                    agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                                    agg["exec_count"] += int(exec_count)
+                                    agg["total_s"] += total_s
+                        tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
                             "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nTables:\n" + json.dumps(rt[:10] if isinstance(rt, list) else rt, indent=2, ensure_ascii=False, default=str)
+                            "\n\nTables:\n" + json.dumps(tables_rows, indent=2, ensure_ascii=False, default=str)
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
