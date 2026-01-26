@@ -25,17 +25,35 @@ class UpdateMCPHostRequest(BaseModel):
 
 
 async def _check_ws(href: str) -> None:
+    # Try modern mcp SDK
     try:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
+        async with WebSocketClientTransport(href) as transport:  # type: ignore
+            async with ClientSession(transport) as session:  # type: ignore
+                await session.initialize()
+        return
+    except Exception:
+        pass
+    # Try legacy mcp client
+    try:
+        from mcp.client.websocket import WebSocketClient  # type: ignore
+        async with WebSocketClient(href) as client:  # type: ignore
+            await client.initialize()
+        return
+    except Exception:
+        pass
+    # Try old modelcontextprotocol
+    try:
+        from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
+        async with WebSocketClient(href) as client:  # type: ignore
+            await client.initialize()
+        return
     except Exception:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail="mcp is not installed on server",
+            detail="mcp/modelcontextprotocol is not installed on server",
         )
-    async with WebSocketClientTransport(href) as transport:  # type: ignore
-        async with ClientSession(transport) as session:  # type: ignore
-            await session.initialize()
 
 
 def _get_hosts() -> List[Dict[str, str]]:
