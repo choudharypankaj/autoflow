@@ -16,7 +16,7 @@ AllowedOrderBy = Literal["rocksdb_key_skipped_count", "query_time", "Time"]
 class MCPSlowQueriesRequest(BaseModel):
     start_time: datetime = Field(..., description="Start time (UTC).")
     end_time: datetime = Field(..., description="End time (UTC).")
-    limit: int = Field(20, ge=1, le=1000)
+    limit: int = Field(20, ge=1, le=20)
     order_by: AllowedOrderBy = Field(
         "rocksdb_key_skipped_count",
         description="Column to order by.",
@@ -38,7 +38,7 @@ class MCPSlowQueriesRequest(BaseModel):
         start = self.start_time.strftime("%Y-%m-%d %H:%M:%S")
         end = self.end_time.strftime("%Y-%m-%d %H:%M:%S")
         order_col = self.order_by
-        limit = self.limit
+        limit = min(self.limit, 20)
         # Note: The MCP db_query tool executes raw SQL; we strictly control injected parts.
         return (
             "SELECT Time, INSTANCE, query_time, SUBSTRING(query, 1, 2000) AS query, rocksdb_key_skipped_count "

@@ -644,7 +644,7 @@ class ChatFlow:
             )
         else:
             sql = (
-                "select Time, INSTANCE, query_time, "
+                "select Time, INSTANCE, query_time, digest, plan_digest, "
                 "substring(query, 1, 2000) as query, "
                 "rocksdb_key_skipped_count "
                 "from information_schema.CLUSTER_SLOW_QUERY "
@@ -921,21 +921,32 @@ class ChatFlow:
                                 sample_queries.append(sample[:200])
                 sample_queries_text = "\n".join(f"- {q}" for q in sample_queries) or "(no data)"
 
-                # Recommendations based on summary signals
-                recommendations: list[str] = []
+                # Recommendations derived from weighted signals
+                recommendations: list[dict] = []
                 if isinstance(top_digest, dict):
                     max_s = float(top_digest.get("max_s") or 0.0)
                     skipped_sum = float(top_digest.get("skipped_sum") or 0.0)
                     exec_count = int(top_digest.get("exec_count") or 0)
-                    if max_s >= 1.0:
-                        recommendations.append("Investigate the slowest query (max_s >= 1s); review query plan and indexes.")
-                    if skipped_sum >= 50000:
-                        recommendations.append("High rocksdb_key_skipped_count; check for inefficient range scans or missing indexes.")
-                    if exec_count >= 50:
-                        recommendations.append("High exec_count; consider caching or batching to reduce repeated execution.")
+                    rules = [
+                        {
+                            "score": 3 if max_s >= 2.0 else 2 if max_s >= 1.0 else 0,
+                            "text": "Investigate the slowest query; review execution plan and indexes.",
+                        },
+                        {
+                            "score": 3 if skipped_sum >= 50000 else 2 if skipped_sum >= 10000 else 0,
+                            "text": "High rocksdb_key_skipped_count; check for inefficient range scans or missing indexes.",
+                        },
+                        {
+                            "score": 2 if exec_count >= 100 else 1 if exec_count >= 50 else 0,
+                            "text": "High exec_count; consider caching, batching, or throttling repeated queries.",
+                        },
+                    ]
+                    recommendations = [r for r in rules if r["score"] > 0]
+                    recommendations.sort(key=lambda r: r["score"], reverse=True)
                 if not recommendations:
-                    recommendations.append("No obvious hotspots detected from the top results; consider widening the time window.")
-                recommendations_text = "\n".join(f"- {r}" for r in recommendations)
+                    recommendations_text = "- No obvious hotspots detected; consider widening the time window."
+                else:
+                    recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
 
                 response_text = (
                     "Slow query summary (high-level):\n\n"
@@ -956,13 +967,21 @@ class ChatFlow:
                 return response_text
             else:
                 # Raw rows path
-                if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
-                    # Directly use managed MCP
-                    from app.mcp.managed import run_managed_mcp_db_query  # local import
-                    result = run_managed_mcp_db_query(host_name, sql)
-                else:
-                    # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
-                    result = run_mcp_db_query(sql, host_name=host_name)
+                result = None
+                cached = getattr(self, "_cached_slow_query_meta", None)
+                if isinstance(cached, dict) and cached.get("type") == "slow_query_rows":
+                    same_host = (cached.get("host_name") or "") == (host_name or "")
+                    same_window = cached.get("start") == start_ts and cached.get("end") == end_ts
+                    if same_host and same_window and isinstance(cached.get("rows"), list):
+                        result = cached.get("rows")
+                if result is None:
+                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                        # Directly use managed MCP
+                        from app.mcp.managed import run_managed_mcp_db_query  # local import
+                        result = run_managed_mcp_db_query(host_name, sql)
+                    else:
+                        # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
+                        result = run_mcp_db_query(sql, host_name=host_name)
                 # Best-effort formatting
                 logger.info("Slow query raw result type=%s", type(result).__name__)
                 parsed_result = _parse_mcp_text_result(result)
@@ -1014,6 +1033,8 @@ class ChatFlow:
                                 "Time": _json_safe(r.get("Time")),
                                 "INSTANCE": _json_safe(r.get("INSTANCE")),
                                 "query_time": _json_safe(r.get("query_time")),
+                                "digest": _json_safe(r.get("digest")),
+                                "plan_digest": _json_safe(r.get("plan_digest")),
                                 "query": _json_safe(r.get("query")),
                                 "rocksdb_key_skipped_count": _json_safe(r.get("rocksdb_key_skipped_count")),
                             })
