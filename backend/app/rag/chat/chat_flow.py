@@ -835,6 +835,9 @@ class ChatFlow:
                     pretty = json.dumps(parsed_result, indent=2, ensure_ascii=False, default=str)
                 else:
                     pretty = str(parsed_result)
+                # Last-resort cleanup: strip MCP wrapper if it still appears in the output
+                if "meta=None content=[TextContent" in pretty and "text=" in pretty:
+                    pretty = str(_coerce_text_payload(pretty))
                 # Cache compact meta for follow-ups (limit rows)
                 compact_rows: list[dict] = []
                 if isinstance(parsed_result, list):
