@@ -750,6 +750,10 @@ class ChatFlow:
                     return digest_rows, instance_rows, tables_rows
 
                 raw_rows = _normalize_rows(result_rows)
+                if not raw_rows and isinstance(getattr(self, "_cached_slow_query_meta", None), dict):
+                    cached = self._cached_slow_query_meta or {}
+                    if cached.get("type") == "slow_query_rows" and isinstance(cached.get("rows"), list):
+                        raw_rows = cached.get("rows") or []
                 digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
 
                 digest_md = rows_to_markdown(
