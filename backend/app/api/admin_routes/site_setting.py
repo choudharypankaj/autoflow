@@ -75,22 +75,17 @@ def update_site_setting(
 
         async def _check_ws(href: str) -> None:
             try:
-                from mcp.client.session import ClientSession  # type: ignore
-                from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
+                from mcp.client.websocket import WebSocketClient  # type: ignore
             except Exception:
                 try:
-                    from mcp.client.websocket import WebSocketClient  # type: ignore
-                    async with WebSocketClient(href) as client:  # type: ignore
-                        await client.initialize()
-                    return
+                    from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
                 except Exception:
                     raise HTTPException(
                         status_code=HTTPStatus.BAD_REQUEST,
-                        detail="MCP Python SDK not available (need mcp.client.session+mcp.transport.websocket or mcp.client.websocket).",
+                        detail="MCP Python SDK not available (need mcp.client.websocket).",
                     )
-            async with WebSocketClientTransport(href) as transport:  # type: ignore
-                async with ClientSession(transport) as session:  # type: ignore
-                    await session.initialize()
+            async with WebSocketClient(href) as client:  # type: ignore
+                await client.initialize()
 
         # Validate each host with a short timeout
         for item in hosts:

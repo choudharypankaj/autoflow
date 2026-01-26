@@ -99,8 +99,7 @@ async def _verify_ws(url: str) -> None:
     if not (url.startswith("ws://") or url.startswith("wss://")):
         raise HTTPException(status_code=400, detail="mcp_ws_url must be ws:// or wss://")
     try:
-        from mcp.client.session import ClientSession  # type: ignore
-        from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
+        from mcp.client.websocket import WebSocketClient  # type: ignore
     except Exception:
         try:
             from mcp.client.websocket import WebSocketClient  # type: ignore
@@ -110,11 +109,10 @@ async def _verify_ws(url: str) -> None:
         except Exception:
             raise HTTPException(
                 status_code=400,
-                detail="MCP Python SDK not available (need mcp.client.session+mcp.transport.websocket or mcp.client.websocket).",
+                detail="MCP Python SDK not available (need mcp.client.websocket).",
             )
-    async with WebSocketClientTransport(url) as transport:  # type: ignore
-        async with ClientSession(transport) as session:  # type: ignore
-            await session.initialize()
+    async with WebSocketClient(url) as client:  # type: ignore
+        await client.initialize()
 
 
 def _upsert_managed_agent(session: SessionDep, req: CreateAgentRequest, resolved_creds: Dict[str, Any]) -> Dict[str, Any]:
