@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import importlib
+from importlib import metadata as importlib_metadata
 from typing import Any, Dict
 
 from app.site_settings import SiteSetting
@@ -15,6 +17,19 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
     try:
         from mcp.client.websocket import WebSocketClient  # type: ignore
     except Exception as e:
+        diagnostics: Dict[str, Any] = {"mcp_version": None, "mcp_client_websocket_attrs": None}
+        try:
+            diagnostics["mcp_version"] = importlib_metadata.version("mcp")
+        except Exception:
+            diagnostics["mcp_version"] = "unknown"
+        try:
+            ws_mod = importlib.import_module("mcp.client.websocket")
+            diagnostics["mcp_client_websocket_attrs"] = sorted(
+                {name for name in dir(ws_mod) if not name.startswith("_")}
+            )
+        except Exception as e2:
+            diagnostics["mcp_client_websocket_attrs"] = f"import_failed: {e2}"
+        logger.error("MCP websocket import failed: %s", diagnostics)
         raise RuntimeError(
             "MCP Python SDK not available (expected mcp.client.websocket). "
             "Install the official SDK into the app venv, e.g.: "

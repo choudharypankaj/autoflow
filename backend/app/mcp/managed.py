@@ -1,4 +1,7 @@
 import asyncio
+import logging
+import importlib
+from importlib import metadata as importlib_metadata
 import os
 import sys
 from typing import Any, Dict, Optional
@@ -9,6 +12,7 @@ from app.core.config import settings
 from app.repositories.mcp_database import mcp_database_repo
 from app.models.mcp_database import MCPDatabase
 
+logger = logging.getLogger(__name__)
 
 class ManagedMCPAgentNotFound(Exception):
     pass
@@ -69,6 +73,19 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
     try:
         from mcp.client.stdio import StdioClient  # type: ignore
     except Exception as e:
+        diagnostics: Dict[str, Any] = {"mcp_version": None, "mcp_client_stdio_attrs": None}
+        try:
+            diagnostics["mcp_version"] = importlib_metadata.version("mcp")
+        except Exception:
+            diagnostics["mcp_version"] = "unknown"
+        try:
+            stdio_mod = importlib.import_module("mcp.client.stdio")
+            diagnostics["mcp_client_stdio_attrs"] = sorted(
+                {name for name in dir(stdio_mod) if not name.startswith("_")}
+            )
+        except Exception as e2:
+            diagnostics["mcp_client_stdio_attrs"] = f"import_failed: {e2}"
+        logger.error("MCP stdio import failed: %s", diagnostics)
         raise RuntimeError(
             "MCP Python SDK not available (expected mcp.client.stdio). "
             "Install the official SDK into the app venv, e.g.: "
