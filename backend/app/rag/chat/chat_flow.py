@@ -784,9 +784,20 @@ class ChatFlow:
                 ]
                 summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
+                # Sample queries list (from digest rows)
+                sample_queries = []
+                for row in digest_rows[:5]:
+                    if isinstance(row, dict):
+                        sample = str(row.get("sample_query") or "").strip()
+                        if sample:
+                            sample_queries.append(sample)
+                sample_queries_text = "\n".join(f"- {q}" for q in sample_queries) or "(no data)"
+
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
+                    "Sample queries:\n\n"
+                    f"{sample_queries_text}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Instance hotspots:\n\n"
