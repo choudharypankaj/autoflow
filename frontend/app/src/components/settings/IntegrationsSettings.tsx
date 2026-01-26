@@ -10,7 +10,6 @@ export function IntegrationsSettings ({ schema, showPostVerificationSettings }: 
   return (
     <div className="space-y-8 max-w-screen-md">
       <LangfuseSettings schema={schema} />
-      <ManagedMCPSettings schema={schema} />
       {showPostVerificationSettings && <ExperimentalPostVerificationSettings schema={schema} />}
     </div>
   );

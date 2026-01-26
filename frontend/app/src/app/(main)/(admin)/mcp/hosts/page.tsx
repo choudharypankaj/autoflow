@@ -1,5 +1,5 @@
 import { getAllSiteSettings } from '@/api/site-settings';
-import { MCPSettings } from '@/components/settings/IntegrationsSettings';
+import { MCPSettings, ManagedMCPSettings } from '@/components/settings/IntegrationsSettings';
 import { AdminPageHeading } from '@/components/admin-page-heading';
 
 export default async function AdminMcpHostsPage () {
@@ -13,6 +13,8 @@ export default async function AdminMcpHostsPage () {
       />
       <div className="max-w-screen-md">
         <MCPSettings schema={settings} />
+        <div className="mt-10" />
+        <ManagedMCPSettings schema={settings} />
       </div>
     </>
   );
