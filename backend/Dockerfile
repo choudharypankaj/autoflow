@@ -12,9 +12,12 @@ COPY pyproject.toml /app/pyproject.toml
 
 RUN PYTHONDONTWRITEBYTECODE=1 uv sync --frozen
 # Ensure MCP client SDK and pytidb MCP extra are available in the venv
-# Use python -m to avoid PATH/pip resolution issues
+# Mirror the verified fix steps (upgrade pip, install mcp and modelcontextprotocol)
 RUN /app/.venv/bin/python -m ensurepip -U && \
-    /app/.venv/bin/python -m pip install --no-cache-dir "mcp>=0.1.0" "pytidb[mcp]<=0.0.13"
+    /app/.venv/bin/python -m pip install --upgrade pip && \
+    /app/.venv/bin/python -m pip install --no-cache-dir "mcp>=0.1.0" && \
+    /app/.venv/bin/python -m pip install --no-cache-dir "modelcontextprotocol>=0.1.0" && \
+    /app/.venv/bin/python -m pip install --no-cache-dir "pytidb[mcp]<=0.0.13"
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Pre-download playwright dependencies.
