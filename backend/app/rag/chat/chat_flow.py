@@ -614,6 +614,9 @@ class ChatFlow:
                             value = parsed.get(key)
                             if isinstance(value, list):
                                 return value
+                        # If a single row dict, wrap it
+                        if any(k in parsed for k in ("digest", "sample_query", "INSTANCE", "Time", "query_time")):
+                            return [parsed]
                     return []
 
                 def rows_to_markdown(result: Any, columns: list[str]) -> str:
