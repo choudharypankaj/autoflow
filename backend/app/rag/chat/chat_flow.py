@@ -1,4 +1,5 @@
 import json
+import ast
 import re
 import logging
 from datetime import datetime, UTC, date, time
@@ -550,6 +551,16 @@ class ChatFlow:
                 "order by total_s desc "
                 "limit 10"
             )
+            sql_rows = (
+                "select digest, plan_digest, INSTANCE, query_time, "
+                "substring(query, 1, 2000) as query, "
+                "rocksdb_key_skipped_count "
+                "from information_schema.CLUSTER_SLOW_QUERY "
+                "where is_internal = false "
+                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                "order by rocksdb_key_skipped_count desc "
+                "limit 20"
+            )
         else:
             sql = (
                 "select Time, INSTANCE, query_time, "
@@ -585,6 +596,30 @@ class ChatFlow:
                     result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
 
                 # Render concise summary
+                def _coerce_text_payload(text: str) -> Any:
+                    try:
+                        return json.loads(text)
+                    except Exception:
+                        pass
+                    try:
+                        return ast.literal_eval(text)
+                    except Exception:
+                        pass
+                    # Try to extract JSON-like payload from within the text
+                    for opener, closer in [("[", "]"), ("{", "}")]:
+                        start = text.find(opener)
+                        end = text.rfind(closer)
+                        if start != -1 and end != -1 and end > start:
+                            chunk = text[start : end + 1]
+                            try:
+                                return json.loads(chunk)
+                            except Exception:
+                                try:
+                                    return ast.literal_eval(chunk)
+                                except Exception:
+                                    continue
+                    return text
+
                 def _parse_mcp_text_result(result: Any) -> Any:
                     if not isinstance(result, dict):
                         return result
@@ -599,14 +634,13 @@ class ChatFlow:
                             text = getattr(item, "text", None)
                         if not text:
                             continue
-                        try:
-                            return json.loads(text)
-                        except Exception:
-                            continue
+                        return _coerce_text_payload(text)
                     return result
 
                 def _normalize_rows(result: Any) -> list:
                     parsed = _parse_mcp_text_result(result)
+                    if isinstance(parsed, str):
+                        parsed = _coerce_text_payload(parsed)
                     if isinstance(parsed, list):
                         return parsed
                     if isinstance(parsed, dict):
@@ -639,17 +673,70 @@ class ChatFlow:
                         lines.append(" | ".join(values))
                     return "\n".join(lines)
 
+                digest_rows = _normalize_rows(result_digest)
+                instance_rows = _normalize_rows(result_instance)
+
+                # If summary queries return empty, derive summary from raw rows.
+                if not digest_rows and not instance_rows:
+                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                        from app.mcp.managed import run_managed_mcp_db_query  # local import
+                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
+                    else:
+                        result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
+                    raw_rows = _normalize_rows(result_rows)
+                    digest_agg: dict[str, dict] = {}
+                    instance_agg: dict[str, dict] = {}
+                    for r in raw_rows:
+                        if not isinstance(r, dict):
+                            continue
+                        digest = str(r.get("digest") or "")
+                        plan_digest = r.get("plan_digest")
+                        q = r.get("query") or ""
+                        inst = r.get("INSTANCE") or ""
+                        qt = float(r.get("query_time") or 0.0)
+                        skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
+                        if digest:
+                            agg = digest_agg.setdefault(
+                                digest,
+                                {
+                                    "digest": digest,
+                                    "sample_query": str(q)[:200],
+                                    "plan_digest": plan_digest,
+                                    "exec_count": 0,
+                                    "avg_s": 0.0,
+                                    "max_s": 0.0,
+                                    "skipped_sum": 0.0,
+                                    "_sum_s": 0.0,
+                                },
+                            )
+                            agg["exec_count"] += 1
+                            agg["_sum_s"] += qt
+                            agg["max_s"] = max(agg["max_s"], qt)
+                            agg["skipped_sum"] += skipped
+                            agg["avg_s"] = round(agg["_sum_s"] / agg["exec_count"], 3)
+                        if inst:
+                            inst_agg = instance_agg.setdefault(
+                                str(inst),
+                                {"INSTANCE": inst, "exec_count": 0, "avg_s": 0.0, "total_s": 0.0, "_sum_s": 0.0},
+                            )
+                            inst_agg["exec_count"] += 1
+                            inst_agg["_sum_s"] += qt
+                            inst_agg["total_s"] = round(inst_agg["_sum_s"], 3)
+                            inst_agg["avg_s"] = round(inst_agg["_sum_s"] / inst_agg["exec_count"], 3)
+                    digest_rows = sorted(digest_agg.values(), key=lambda x: x["skipped_sum"], reverse=True)[:10]
+                    instance_rows = sorted(instance_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+
                 digest_md = rows_to_markdown(
-                    result_digest,
+                    digest_rows,
                     ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                 )
                 instance_md = rows_to_markdown(
-                    result_instance,
+                    instance_rows,
                     ["INSTANCE", "exec_count", "avg_s", "total_s"],
                 )
                 # Impacted tables derived from digest sample_query
                 tables_agg: dict[str, dict] = {}
-                for r in _normalize_rows(result_digest):
+                for r in digest_rows:
                     if not isinstance(r, dict):
                         continue
                     sample = r.get("sample_query") or ""
@@ -668,8 +755,8 @@ class ChatFlow:
                     "host_name": host_name,
                     "start": start_ts,
                     "end": end_ts,
-                    "digests": _normalize_rows(result_digest),
-                    "instances": _normalize_rows(result_instance),
+                    "digests": digest_rows,
+                    "instances": instance_rows,
                     "tables": tables_rows,
                 })
                 response_text = (
