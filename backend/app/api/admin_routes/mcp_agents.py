@@ -98,35 +98,17 @@ def _verify_db_conn(req: CreateAgentRequest) -> Dict[str, Any]:
 async def _verify_ws(url: str) -> None:
     if not (url.startswith("ws://") or url.startswith("wss://")):
         raise HTTPException(status_code=400, detail="mcp_ws_url must be ws:// or wss://")
-    # Try modern mcp SDK
     try:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
-        async with WebSocketClientTransport(url) as transport:  # type: ignore
-            async with ClientSession(transport) as session:  # type: ignore
-                await session.initialize()
-        return
-    except Exception:
-        pass
-    # Try legacy mcp client
-    try:
-        from mcp.client.websocket import WebSocketClient  # type: ignore
-        async with WebSocketClient(url) as client:  # type: ignore
-            await client.initialize()
-        return
-    except Exception:
-        pass
-    # Try old modelcontextprotocol
-    try:
-        from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
-        async with WebSocketClient(url) as client:  # type: ignore
-            await client.initialize()
-        return
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail="mcp/modelcontextprotocol is not installed on server",
+            detail="MCP Python SDK not available (need mcp.client.session and mcp.transport.websocket).",
         )
+    async with WebSocketClientTransport(url) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
 
 
 def _upsert_managed_agent(session: SessionDep, req: CreateAgentRequest, resolved_creds: Dict[str, Any]) -> Dict[str, Any]:

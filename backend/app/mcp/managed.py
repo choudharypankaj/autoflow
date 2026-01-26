@@ -65,41 +65,21 @@ def _resolve_db_credentials(agent: Dict[str, Any]) -> Dict[str, str]:
 
 
 async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]) -> Any:
-    # Extract once so fallback never references an undefined variable
-    query_sql = str((params or {}).get("sql", ""))
     cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
-
-    # Preferred: modern mcp SDK (transport + session)
     try:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.stdio import StdioClientTransport  # type: ignore
-        async with StdioClientTransport(command=cmd, env=env) as transport:  # type: ignore
-            async with ClientSession(transport) as session:  # type: ignore
-                await session.initialize()
-                return await session.call_tool(tool, params)
-    except Exception:
-        pass
-
-    # Fallback: legacy mcp client API
-    try:
-        from mcp.client.stdio import StdioClient  # type: ignore
-        async with StdioClient(cmd, env=env) as client:  # type: ignore
-            await client.initialize()
-            return await client.call_tool(tool, params)
-    except Exception:
-        pass
-
-    # Final fallback: old modelcontextprotocol client
-    try:
-        from modelcontextprotocol.client.stdio import StdioClient  # type: ignore
-        async with StdioClient(cmd, env=env) as client:  # type: ignore
-            await client.initialize()
-            return await client.call_tool(tool, params)
     except Exception as e:
         raise RuntimeError(
-            "MCP Python SDK is not installed or incompatible. Unable to run MCP tool. "
-            "Install 'mcp' (or legacy 'modelcontextprotocol') in the backend environment."
+            "MCP Python SDK not available (expected mcp.client.session and mcp.transport.stdio). "
+            "Install the official SDK into the app venv, e.g.: "
+            "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+            "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
         ) from e
+    async with StdioClientTransport(command=cmd, env=env) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
+            return await session.call_tool(tool, params)
 
 
 def run_managed_mcp_db_query(agent_name: str, sql: str) -> Any:

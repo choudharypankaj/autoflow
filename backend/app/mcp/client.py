@@ -12,36 +12,20 @@ class MCPNotConfigured(Exception):
 
 
 async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
-    # Preferred: modern mcp SDK (transport + session)
     try:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
-        async with WebSocketClientTransport(mcp_url) as transport:  # type: ignore
-            async with ClientSession(transport) as session:  # type: ignore
-                await session.initialize()
-                return await session.call_tool(tool, params)
-    except Exception:
-        pass
-
-    # Fallback: legacy mcp client API
-    try:
-        from mcp.client.websocket import WebSocketClient  # type: ignore
-        async with WebSocketClient(mcp_url) as client:  # type: ignore
-            await client.initialize()
-            return await client.call_tool(tool, params)
-    except Exception:
-        pass
-
-    # Final fallback: old modelcontextprotocol client
-    try:
-        from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
-        async with WebSocketClient(mcp_url) as client:  # type: ignore
-            await client.initialize()
-            return await client.call_tool(tool, params)
     except Exception as e:
         raise RuntimeError(
-            "MCP Python SDK is not installed or incompatible. Please install 'mcp' in the backend environment."
+            "MCP Python SDK not available (expected mcp.client.session and mcp.transport.websocket). "
+            "Install the official SDK into the app venv, e.g.: "
+            "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+            "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
         ) from e
+    async with WebSocketClientTransport(mcp_url) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
+            return await session.call_tool(tool, params)
 
 
 def _select_mcp_host(preferred_name: str | None = None) -> str:
