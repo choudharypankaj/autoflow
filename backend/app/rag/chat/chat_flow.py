@@ -426,7 +426,7 @@ class ChatFlow:
                         if not isinstance(r, dict):
                             continue
                         digest = str(r.get("digest") or "")
-                        plan_digest = r.get("plan_digest")
+                        plan_digest = r.get("plan_digest") or "-"
                         q = r.get("query") or ""
                         inst = r.get("INSTANCE") or ""
                         qt = float(r.get("query_time") or 0.0)
@@ -799,7 +799,9 @@ class ChatFlow:
                     text = str(value) if value is not None else ""
                     # remove control characters / non-printable
                     text = "".join(ch if ch.isprintable() else " " for ch in text)
-                    return " ".join(text.split())
+                    # escape table separators
+                    text = text.replace("|", r"\|")
+                    return " ".join(text.split()) or "-"
 
                 def rows_to_markdown(result: Any, columns: list[str]) -> str:
                     rows = _normalize_rows(result)
@@ -828,7 +830,7 @@ class ChatFlow:
                         if not isinstance(r, dict):
                             continue
                         digest = str(r.get("digest") or "")
-                        plan_digest = r.get("plan_digest")
+                        plan_digest = r.get("plan_digest") or "-"
                         q = r.get("query") or ""
                         inst = r.get("INSTANCE") or ""
                         qt = float(r.get("query_time") or 0.0)
@@ -1005,9 +1007,7 @@ class ChatFlow:
                 )
 
                 def _clean_value(value: Any) -> str:
-                    text = str(value) if value is not None else ""
-                    text = text.replace("\n", " ").replace("\r", " ")
-                    return " ".join(text.split())
+                    return _clean_cell(value)
 
                 rows = _normalize_rows(parsed_result)
                 if rows:
