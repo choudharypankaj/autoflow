@@ -17,10 +17,6 @@ services:
       - "8000:80"
     env_file:
       - .env
-    environment:
-      LOG_LEVEL: DEBUG
-      SQLALCHEMY_LOG_LEVEL: INFO
-      ENVIRONMENT: local
     volumes:
       - ./data:/shared/data
     logging:
@@ -53,10 +49,6 @@ services:
       - "5555:5555"
     env_file:
       - .env
-    environment:
-      LOG_LEVEL: DEBUG
-      SQLALCHEMY_LOG_LEVEL: INFO
-      ENVIRONMENT: local
     volumes:
       - ./data:/shared/data
     command: /usr/bin/supervisord
