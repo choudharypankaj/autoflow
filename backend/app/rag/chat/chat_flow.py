@@ -405,8 +405,9 @@ class ChatFlow:
         ts_pattern = r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})"
         matches = re.findall(ts_pattern, user_question)
         if len(matches) < 2:
-            # Follow-up: try using cached meta from the last assistant message
-            if re.search(r"\b(last|previous|summary|summarize|digest|instance|table)\b", user_question, flags=re.IGNORECASE):
+            # Default to cached summary unless user explicitly asks for a fresh run
+            force_fresh = bool(re.search(r"\b(fresh|re[-\s]?run|new\s+window|do\s+not\s+use\s+last|ignore\s+summary)\b", user_question, flags=re.IGNORECASE))
+            if not force_fresh:
                 try:
                     prior_messages = chat_repo.get_messages(self.db_session, self.db_chat_obj)
                     meta = None
@@ -420,52 +421,44 @@ class ChatFlow:
                         except Exception:
                             continue
                     if meta and meta.get("type") == "slow_query_summary":
-                        # Answer from cached summary
+                        # Use cached summary for follow-up
                         want_instance = bool(re.search(r"\binstance", user_question, flags=re.IGNORECASE))
                         want_digest = bool(re.search(r"\bdigest", user_question, flags=re.IGNORECASE))
+                        want_table = bool(re.search(r"\btable", user_question, flags=re.IGNORECASE))
                         digests = meta.get("digests") or []
                         instances = meta.get("instances") or []
-                        response_chunks: list[str] = []
-                        if want_digest and isinstance(digests, list):
-                            scored = []
-                            for d in digests:
-                                if isinstance(d, dict):
-                                    exec_count = float(d.get("exec_count") or 0)
-                                    avg_s = float(d.get("avg_s") or 0.0)
-                                    total_s = exec_count * avg_s
-                                    scored.append({
-                                        "digest": d.get("digest", ""),
-                                        "sample_query": d.get("sample_query", ""),
-                                        "exec_count": int(exec_count),
-                                        "avg_s": avg_s,
-                                        "total_s": round(total_s, 3),
-                                    })
-                            scored.sort(key=lambda x: x["total_s"], reverse=True)
-                            header = "digest | exec_count | avg_s | total_s"
-                            sep = "--- | --- | --- | ---"
-                            rows = [f'{r["digest"]} | {r["exec_count"]} | {r["avg_s"]} | {r["total_s"]}' for r in scored[:10]]
-                            response_chunks.append("Top digests by total time:\n\n" + "\n".join([header, sep] + rows))
+                        tables = meta.get("tables") or []
+                        chunks: list[str] = []
+                        if want_digest or (not want_instance and not want_table):
+                            # Default to digests if user didn't specify a facet
+                            if isinstance(digests, list):
+                                scored = []
+                                for d in digests:
+                                    if isinstance(d, dict):
+                                        exec_count = float(d.get("exec_count") or 0)
+                                        avg_s = float(d.get("avg_s") or 0.0)
+                                        total_s = exec_count * avg_s
+                                        scored.append({
+                                            "digest": d.get("digest", ""),
+                                            "exec_count": int(exec_count),
+                                            "avg_s": avg_s,
+                                            "total_s": round(total_s, 3),
+                                        })
+                                scored.sort(key=lambda x: x["total_s"], reverse=True)
+                                chunks.append("Top digests by total time (cached):\n\n" + _rows_to_markdown(scored, ["digest", "exec_count", "avg_s", "total_s"]))
                         if want_instance and isinstance(instances, list):
-                            best = None
-                            for inst in instances:
-                                if isinstance(inst, dict):
-                                    if best is None or (float(inst.get("exec_count") or 0) > float(best.get("exec_count") or 0)):
-                                        best = inst
-                            if best:
-                                response_chunks.append(
-                                    f"Top instance by exec_count: {best.get('INSTANCE','')} "
-                                    f"(exec_count={best.get('exec_count','')}, avg_s={best.get('avg_s','')}, total_s={best.get('total_s','')})"
-                                )
-                        if response_chunks:
-                            result_text = "\n\n".join(response_chunks)
-                            if len(result_text) > MAX_CHAT_RESULT_CHARS:
-                                result_text = result_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
-                            # keep cached meta for downstream use
+                            chunks.append("Instances (cached):\n\n" + _rows_to_markdown(instances, ["INSTANCE", "exec_count", "avg_s", "total_s"]))
+                        if want_table and isinstance(tables, list):
+                            chunks.append("Impacted tables (cached):\n\n" + _rows_to_markdown(tables, ["table", "exec_count", "total_s"]))
+                        if chunks:
+                            text = "\n\n".join(chunks)
+                            if len(text) > MAX_CHAT_RESULT_CHARS:
+                                text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                             self._cached_slow_query_meta = _json_safe(meta)
-                            return result_text
+                            return text
                 except Exception:
                     pass
-            # No cached context usable; ask for window
+            # No cached context usable or user forced fresh; ask for window
             return (
                 "Please provide UTC start and end times in the format "
                 "'YYYY-MM-DD HH:MM:SS'. Example: start 2026-01-14 16:15:00, end 2026-01-14 16:47:00"
