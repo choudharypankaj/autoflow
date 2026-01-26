@@ -519,6 +519,7 @@ class ChatFlow:
         )
 
         # Construct SQLs
+
         if summary_mode:
             sql_digest = (
                 "select "
