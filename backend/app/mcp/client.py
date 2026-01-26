@@ -41,6 +41,8 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
         WebSocketClient = getattr(ws_mod, "WebSocketClient")
         async with WebSocketClient(mcp_url) as client:  # type: ignore
             await client.initialize()
+            if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
+                params = {**params, "sql_stmt": params["sql"]}
             return await client.call_tool(tool, params)
     # Path B: websocket_client + ClientSession
     if hasattr(ws_mod, "websocket_client"):
@@ -50,6 +52,8 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
         async with websocket_client(mcp_url) as (read_stream, write_stream):  # type: ignore
             async with ClientSession(read_stream, write_stream) as session:  # type: ignore
                 await session.initialize()
+                if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
+                    params = {**params, "sql_stmt": params["sql"]}
                 return await session.call_tool(tool, params)
     logger.error(
         "MCP websocket module missing WebSocketClient/websocket_client: %s",

@@ -98,6 +98,8 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         StdioClient = getattr(stdio_mod, "StdioClient")
         async with StdioClient(cmd, env=env) as client:  # type: ignore
             await client.initialize()
+            if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
+                params = {**params, "sql_stmt": params["sql"]}
             return await client.call_tool(tool, params)
     # Path B: stdio_client + ClientSession
     if hasattr(stdio_mod, "stdio_client") and hasattr(stdio_mod, "StdioServerParameters"):
@@ -125,6 +127,8 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         async with stdio_client(server_params) as (read_stream, write_stream):  # type: ignore
             async with ClientSession(read_stream, write_stream) as session:  # type: ignore
                 await session.initialize()
+                if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
+                    params = {**params, "sql_stmt": params["sql"]}
                 return await session.call_tool(tool, params)
     logger.error(
         "MCP stdio module missing StdioClient/stdio_client: %s",
