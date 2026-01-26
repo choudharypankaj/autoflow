@@ -1,4 +1,16 @@
 .remark-content {
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    white-space: nowrap;
+  }
+
   sup a[data-footnote-ref=true] {
     @apply bg-primary text-primary-foreground px-1 mx-0.5 rounded-full no-underline;
   }
