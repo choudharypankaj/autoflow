@@ -843,9 +843,15 @@ class ChatFlow:
                     # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
                     result = run_mcp_db_query(sql, host_name=host_name)
                 # Best-effort formatting
+                logger.info("Slow query raw result type=%s", type(result).__name__)
                 parsed_result = _parse_mcp_text_result(result)
                 if isinstance(parsed_result, str):
                     parsed_result = _coerce_text_payload(parsed_result)
+                logger.info(
+                    "Slow query parsed result type=%s preview=%s",
+                    type(parsed_result).__name__,
+                    str(parsed_result)[:200].replace("\n", "\\n"),
+                )
 
                 def _clean_value(value: Any) -> str:
                     text = str(value) if value is not None else ""
