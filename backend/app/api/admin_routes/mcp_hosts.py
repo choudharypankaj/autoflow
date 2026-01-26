@@ -26,14 +26,16 @@ class UpdateMCPHostRequest(BaseModel):
 
 async def _check_ws(href: str) -> None:
     try:
-        from mcp.client.websocket import WebSocketClient  # type: ignore
+        from mcp.client.session import ClientSession  # type: ignore
+        from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
     except Exception:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
             detail="mcp is not installed on server",
         )
-    async with WebSocketClient(href) as client:
-        await client.initialize()
+    async with WebSocketClientTransport(href) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
 
 
 def _get_hosts() -> List[Dict[str, str]]:

@@ -99,14 +99,16 @@ async def _verify_ws(url: str) -> None:
     if not (url.startswith("ws://") or url.startswith("wss://")):
         raise HTTPException(status_code=400, detail="mcp_ws_url must be ws:// or wss://")
     try:
-        from mcp.client.websocket import WebSocketClient  # type: ignore
+        from mcp.client.session import ClientSession  # type: ignore
+        from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
     except Exception:
         raise HTTPException(
             status_code=400,
             detail="mcp is not installed on server",
         )
-    async with WebSocketClient(url) as client:  # type: ignore
-        await client.initialize()
+    async with WebSocketClientTransport(url) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
 
 
 def _upsert_managed_agent(session: SessionDep, req: CreateAgentRequest, resolved_creds: Dict[str, Any]) -> Dict[str, Any]:

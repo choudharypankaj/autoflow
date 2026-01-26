@@ -68,7 +68,8 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
     # Extract once so fallback never references an undefined variable
     query_sql = str((params or {}).get("sql", ""))
     try:
-        from mcp.client.stdio import StdioClient  # type: ignore
+        from mcp.client.session import ClientSession  # type: ignore
+        from mcp.transport.stdio import StdioClientTransport  # type: ignore
     except Exception as e:
         raise RuntimeError(
             "MCP Python SDK is not installed or incompatible. Unable to run MCP tool. "
@@ -76,9 +77,10 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         ) from e
 
     cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
-    async with StdioClient(cmd, env=env) as client:  # type: ignore
-        await client.initialize()
-        return await client.call_tool(tool, params)
+    async with StdioClientTransport(command=cmd, env=env) as transport:  # type: ignore
+        async with ClientSession(transport) as session:  # type: ignore
+            await session.initialize()
+            return await session.call_tool(tool, params)
 
 
 def run_managed_mcp_db_query(agent_name: str, sql: str) -> Any:
