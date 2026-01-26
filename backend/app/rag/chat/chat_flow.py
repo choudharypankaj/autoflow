@@ -756,6 +756,7 @@ class ChatFlow:
                         content = getattr(result, "content", None)
                     if not isinstance(content, list):
                         return result
+                    parsed_items = []
                     for item in content:
                         text = None
                         if isinstance(item, dict):
@@ -766,7 +767,11 @@ class ChatFlow:
                             continue
                         parsed = _coerce_text_payload(text)
                         logger.info("MCP text parsed type=%s", type(parsed).__name__)
-                        return parsed
+                        parsed_items.append(parsed)
+                    if len(parsed_items) == 1:
+                        return parsed_items[0]
+                    if parsed_items:
+                        return parsed_items
                     return result
 
                 def _normalize_rows(result: Any) -> list:

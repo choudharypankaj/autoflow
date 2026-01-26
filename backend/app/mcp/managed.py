@@ -55,23 +55,33 @@ def _unwrap_mcp_result(result: Any) -> Any:
         content = result.get("content")
         if isinstance(content, list):
             logger.info("MCP unwrap (managed) content list size=%s", len(content))
+            parsed_items = []
             for item in content:
                 text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
                 if not text:
                     continue
                 if isinstance(text, str):
                     logger.info("MCP unwrap (managed) text preview=%s", text[:200].replace("\n", "\\n"))
-                    return _parse_text(text)
+                    parsed_items.append(_parse_text(text))
+            if len(parsed_items) == 1:
+                return parsed_items[0]
+            if parsed_items:
+                return parsed_items
     content = getattr(result, "content", None)
     if isinstance(content, list):
         logger.info("MCP unwrap (managed) object content list size=%s", len(content))
+        parsed_items = []
         for item in content:
             text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
             if not text:
                 continue
             if isinstance(text, str):
                 logger.info("MCP unwrap (managed) object text preview=%s", text[:200].replace("\n", "\\n"))
-                return _parse_text(text)
+                parsed_items.append(_parse_text(text))
+        if len(parsed_items) == 1:
+            return parsed_items[0]
+        if parsed_items:
+            return parsed_items
     logger.info("MCP unwrap (managed) passthrough type=%s", type(result).__name__)
     return result
 
