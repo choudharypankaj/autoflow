@@ -648,9 +648,11 @@ class ChatFlow:
                     return text
 
                 def _parse_mcp_text_result(result: Any) -> Any:
-                    if not isinstance(result, dict):
-                        return result
-                    content = result.get("content")
+                    content = None
+                    if isinstance(result, dict):
+                        content = result.get("content")
+                    else:
+                        content = getattr(result, "content", None)
                     if not isinstance(content, list):
                         return result
                     for item in content:
