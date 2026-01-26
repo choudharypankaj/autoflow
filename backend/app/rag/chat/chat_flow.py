@@ -597,6 +597,30 @@ class ChatFlow:
 
                 # Render concise summary
                 def _coerce_text_payload(text: str) -> Any:
+                    # Handle repr-style wrapper: meta=None content=[TextContent(type='text', text='...')]
+                    if "TextContent" in text and "text=" in text:
+                        try:
+                            start = text.index("text=") + len("text=")
+                            snippet = text[start:].lstrip()
+                            if snippet and snippet[0] in ("'", '"'):
+                                quote = snippet[0]
+                                # Find matching quote respecting escapes
+                                i = 1
+                                escaped = False
+                                while i < len(snippet):
+                                    ch = snippet[i]
+                                    if escaped:
+                                        escaped = False
+                                    elif ch == "\\":
+                                        escaped = True
+                                    elif ch == quote:
+                                        break
+                                    i += 1
+                                raw_text = snippet[: i + 1]
+                                extracted = ast.literal_eval(raw_text)
+                                return _coerce_text_payload(str(extracted))
+                        except Exception:
+                            pass
                     try:
                         return json.loads(text)
                     except Exception:
