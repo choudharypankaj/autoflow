@@ -52,6 +52,16 @@ def _unwrap_mcp_result(result: Any) -> Any:
                 if isinstance(text, str):
                     logger.info("MCP unwrap (ws) text preview=%s", text[:200].replace("\n", "\\n"))
                     return _parse_text(text)
+    content = getattr(result, "content", None)
+    if isinstance(content, list):
+        logger.info("MCP unwrap (ws) object content list size=%s", len(content))
+        for item in content:
+            text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+            if not text:
+                continue
+            if isinstance(text, str):
+                logger.info("MCP unwrap (ws) object text preview=%s", text[:200].replace("\n", "\\n"))
+                return _parse_text(text)
     logger.info("MCP unwrap (ws) passthrough type=%s", type(result).__name__)
     return result
 
