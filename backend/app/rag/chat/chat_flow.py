@@ -360,6 +360,7 @@ class ChatFlow:
                     want_instance = bool(re.search(r"\binstance", user_question, flags=re.IGNORECASE))
                     want_digest = bool(re.search(r"\bdigest", user_question, flags=re.IGNORECASE))
                     want_table = bool(re.search(r"\btable", user_question, flags=re.IGNORECASE))
+                    want_sample = bool(re.search(r"\b(sample|examples?|queries?|execution)\b", user_question, flags=re.IGNORECASE))
                     digests = meta.get("digests") or []
                     instances = meta.get("instances") or []
                     tables = meta.get("tables") or []
@@ -383,6 +384,97 @@ class ChatFlow:
                         chunks.append("Instances (cached):\n\n" + _rows_to_markdown(instances, ["INSTANCE", "exec_count", "avg_s", "total_s"]))
                     if want_table and isinstance(tables, list):
                         chunks.append("Impacted tables (cached):\n\n" + _rows_to_markdown(tables, ["table", "exec_count", "total_s"]))
+                    if want_sample and isinstance(digests, list):
+                        samples = []
+                        for d in digests:
+                            if isinstance(d, dict):
+                                sample = str(d.get("sample_query") or "").strip()
+                                if sample:
+                                    samples.append(sample)
+                        if samples:
+                            chunks.append("Sample queries (cached):\n\n" + "\n".join(f"- {s}" for s in samples[:5]))
+                    if chunks:
+                        text = "\n\n".join(chunks)
+                        if len(text) > MAX_CHAT_RESULT_CHARS:
+                            text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
+                        self._cached_slow_query_meta = _json_safe(meta)
+                        return text
+                if meta and meta.get("type") == "slow_query_rows":
+                    rows = meta.get("rows") or []
+                    want_instance = bool(re.search(r"\binstance", user_question, flags=re.IGNORECASE))
+                    want_digest = bool(re.search(r"\bdigest", user_question, flags=re.IGNORECASE))
+                    want_table = bool(re.search(r"\btable", user_question, flags=re.IGNORECASE))
+                    want_sample = bool(re.search(r"\b(sample|examples?|queries?|execution)\b", user_question, flags=re.IGNORECASE))
+                    # derive summary from cached rows
+                    digest_agg: dict[str, dict] = {}
+                    instance_agg: dict[str, dict] = {}
+                    for r in rows:
+                        if not isinstance(r, dict):
+                            continue
+                        digest = str(r.get("digest") or "")
+                        plan_digest = r.get("plan_digest")
+                        q = r.get("query") or ""
+                        inst = r.get("INSTANCE") or ""
+                        qt = float(r.get("query_time") or 0.0)
+                        skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
+                        if digest:
+                            agg = digest_agg.setdefault(
+                                digest,
+                                {
+                                    "digest": digest,
+                                    "sample_query": str(q)[:200],
+                                    "plan_digest": plan_digest,
+                                    "exec_count": 0,
+                                    "avg_s": 0.0,
+                                    "max_s": 0.0,
+                                    "skipped_sum": 0.0,
+                                    "_sum_s": 0.0,
+                                },
+                            )
+                            agg["exec_count"] += 1
+                            agg["_sum_s"] += qt
+                            agg["max_s"] = max(agg["max_s"], qt)
+                            agg["skipped_sum"] += skipped
+                            agg["avg_s"] = round(agg["_sum_s"] / agg["exec_count"], 3)
+                        if inst:
+                            inst_agg = instance_agg.setdefault(
+                                str(inst),
+                                {"INSTANCE": inst, "exec_count": 0, "avg_s": 0.0, "total_s": 0.0, "_sum_s": 0.0},
+                            )
+                            inst_agg["exec_count"] += 1
+                            inst_agg["_sum_s"] += qt
+                            inst_agg["total_s"] = round(inst_agg["_sum_s"], 3)
+                            inst_agg["avg_s"] = round(inst_agg["_sum_s"] / inst_agg["exec_count"], 3)
+                    digest_rows = sorted(digest_agg.values(), key=lambda x: x["skipped_sum"], reverse=True)[:10]
+                    instance_rows = sorted(instance_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                    tables_agg: dict[str, dict] = {}
+                    for r in digest_rows:
+                        if not isinstance(r, dict):
+                            continue
+                        sample = r.get("sample_query") or ""
+                        exec_count = float(r.get("exec_count") or 0)
+                        avg_s = float(r.get("avg_s") or 0.0)
+                        total_s = exec_count * avg_s
+                        for t in _extract_tables_from_sql(str(sample)):
+                            agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                            agg["exec_count"] += int(exec_count)
+                            agg["total_s"] += total_s
+                    tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                    chunks: list[str] = []
+                    if want_digest and digest_rows:
+                        chunks.append("Top digests (cached rows):\n\n" + _rows_to_markdown(digest_rows, ["digest", "exec_count", "avg_s", "max_s", "skipped_sum"]))
+                    if want_instance and instance_rows:
+                        chunks.append("Instances (cached rows):\n\n" + _rows_to_markdown(instance_rows, ["INSTANCE", "exec_count", "avg_s", "total_s"]))
+                    if want_table and tables_rows:
+                        chunks.append("Impacted tables (cached rows):\n\n" + _rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"]))
+                    if want_sample:
+                        samples = []
+                        for r in rows[:5]:
+                            if isinstance(r, dict):
+                                sample = str(r.get("query") or "").strip()
+                                if sample:
+                                    samples.append(sample[:200])
+                        chunks.append("Sample queries (cached rows):\n\n" + ("\n".join(f"- {s}" for s in samples) or "(no data)"))
                     if chunks:
                         text = "\n\n".join(chunks)
                         if len(text) > MAX_CHAT_RESULT_CHARS:
