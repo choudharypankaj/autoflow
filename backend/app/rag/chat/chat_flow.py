@@ -522,35 +522,7 @@ class ChatFlow:
         # Construct SQLs
 
         if summary_mode:
-            sql_digest = (
-                "select "
-                "digest, "
-                "any_value(substring(query, 1, 200)) as sample_query, "
-                "any_value(plan_digest) as plan_digest, "
-                "count(*) as exec_count, "
-                "round(avg(query_time), 3) as avg_s, "
-                "round(max(query_time), 3) as max_s, "
-                "sum(rocksdb_key_skipped_count) as skipped_sum "
-                "from information_schema.CLUSTER_SLOW_QUERY "
-                "where is_internal = false "
-                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                "group by digest "
-                "order by sum(query_time) desc "
-                "limit 10"
-            )
-            sql_instance = (
-                "select "
-                "INSTANCE, "
-                "count(*) as exec_count, "
-                "round(avg(query_time), 3) as avg_s, "
-                "round(sum(query_time), 3) as total_s "
-                "from information_schema.CLUSTER_SLOW_QUERY "
-                "where is_internal = false "
-                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                "group by INSTANCE "
-                "order by total_s desc "
-                "limit 10"
-            )
+            # Run a single raw query and summarize in-app
             sql_rows = (
                 "select digest, plan_digest, INSTANCE, query_time, "
                 "substring(query, 1, 2000) as query, "
@@ -559,7 +531,7 @@ class ChatFlow:
                 "where is_internal = false "
                 f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
                 "order by rocksdb_key_skipped_count desc "
-                "limit 20"
+                "limit 500"
             )
         else:
             sql = (
@@ -586,14 +558,12 @@ class ChatFlow:
 
         try:
             if summary_mode:
-                # Run both summaries
+                # Run raw query and summarize in-app
                 if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
-                    result_digest = run_managed_mcp_db_query(host_name, sql_digest)
-                    result_instance = run_managed_mcp_db_query(host_name, sql_instance)
+                    result_rows = run_managed_mcp_db_query(host_name, sql_rows)
                 else:
-                    result_digest = run_mcp_db_query(sql_digest, host_name=host_name)
-                    result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
+                    result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
 
                 # Render concise summary
                 def _coerce_text_payload(text: str) -> Any:
@@ -722,17 +692,7 @@ class ChatFlow:
                         lines.append(" | ".join(values))
                     return "\n".join(lines)
 
-                digest_rows = _normalize_rows(result_digest)
-                instance_rows = _normalize_rows(result_instance)
-
-                # If summary queries return empty, derive summary from raw rows.
-                if not digest_rows and not instance_rows:
-                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
-                        from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
-                    else:
-                        result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
-                    raw_rows = _normalize_rows(result_rows)
+                def _build_summary_from_rows(raw_rows: list) -> tuple[list[dict], list[dict], list[dict]]:
                     digest_agg: dict[str, dict] = {}
                     instance_agg: dict[str, dict] = {}
                     for r in raw_rows:
@@ -774,6 +734,23 @@ class ChatFlow:
                             inst_agg["avg_s"] = round(inst_agg["_sum_s"] / inst_agg["exec_count"], 3)
                     digest_rows = sorted(digest_agg.values(), key=lambda x: x["skipped_sum"], reverse=True)[:10]
                     instance_rows = sorted(instance_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                    tables_agg: dict[str, dict] = {}
+                    for r in digest_rows:
+                        if not isinstance(r, dict):
+                            continue
+                        sample = r.get("sample_query") or ""
+                        exec_count = float(r.get("exec_count") or 0)
+                        avg_s = float(r.get("avg_s") or 0.0)
+                        total_s = exec_count * avg_s
+                        for t in _extract_tables_from_sql(str(sample)):
+                            agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                            agg["exec_count"] += int(exec_count)
+                            agg["total_s"] += total_s
+                    tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                    return digest_rows, instance_rows, tables_rows
+
+                raw_rows = _normalize_rows(result_rows)
+                digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
 
                 digest_md = rows_to_markdown(
                     digest_rows,
@@ -784,19 +761,6 @@ class ChatFlow:
                     ["INSTANCE", "exec_count", "avg_s", "total_s"],
                 )
                 # Impacted tables derived from digest sample_query
-                tables_agg: dict[str, dict] = {}
-                for r in digest_rows:
-                    if not isinstance(r, dict):
-                        continue
-                    sample = r.get("sample_query") or ""
-                    exec_count = float(r.get("exec_count") or 0)
-                    avg_s = float(r.get("avg_s") or 0.0)
-                    total_s = exec_count * avg_s
-                    for t in _extract_tables_from_sql(str(sample)):
-                        agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
-                        agg["exec_count"] += int(exec_count)
-                        agg["total_s"] += total_s
-                tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                 # Cache compact meta for follow-ups
                 self._cached_slow_query_meta = _json_safe({
@@ -917,28 +881,25 @@ class ChatFlow:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
                     if summary_mode:
-                        rd = run_managed_mcp_db_query(host_name, sql_digest)
-                        ri = run_managed_mcp_db_query(host_name, sql_instance)
-                        # derive tables from digest result
-                        tables_agg: dict[str, dict] = {}
-                        if isinstance(rd, list):
-                            for r in rd:
-                                if not isinstance(r, dict):
-                                    continue
-                                sample = r.get("sample_query") or ""
-                                exec_count = float(r.get("exec_count") or 0)
-                                avg_s = float(r.get("avg_s") or 0.0)
-                                total_s = exec_count * avg_s
-                                for t in _extract_tables_from_sql(str(sample)):
-                                    agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
-                                    agg["exec_count"] += int(exec_count)
-                                    agg["total_s"] += total_s
-                        tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
+                        raw_rows = _normalize_rows(result_rows)
+                        digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
+                        digest_md = rows_to_markdown(
+                            digest_rows,
+                            ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
+                        )
+                        instance_md = rows_to_markdown(
+                            instance_rows,
+                            ["INSTANCE", "exec_count", "avg_s", "total_s"],
+                        )
+                        tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                         text = (
                             "Slow query summary (managed fallback):\n\n"
-                            "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nTables:\n" + json.dumps(tables_rows, indent=2, ensure_ascii=False, default=str)
+                            f"{digest_md}\n\n"
+                            "Instance hotspots:\n\n"
+                            f"{instance_md}\n\n"
+                            "Impacted tables:\n\n"
+                            f"{tables_md}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
@@ -967,27 +928,25 @@ class ChatFlow:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
                     if summary_mode:
-                        rd = run_managed_mcp_db_query(fallback_name, sql_digest)
-                        ri = run_managed_mcp_db_query(fallback_name, sql_instance)
-                        tables_agg: dict[str, dict] = {}
-                        if isinstance(rd, list):
-                            for r in rd:
-                                if not isinstance(r, dict):
-                                    continue
-                                sample = r.get("sample_query") or ""
-                                exec_count = float(r.get("exec_count") or 0)
-                                avg_s = float(r.get("avg_s") or 0.0)
-                                total_s = exec_count * avg_s
-                                for t in _extract_tables_from_sql(str(sample)):
-                                    agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
-                                    agg["exec_count"] += int(exec_count)
-                                    agg["total_s"] += total_s
-                        tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+                        result_rows = run_managed_mcp_db_query(fallback_name, sql_rows)
+                        raw_rows = _normalize_rows(result_rows)
+                        digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
+                        digest_md = rows_to_markdown(
+                            digest_rows,
+                            ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
+                        )
+                        instance_md = rows_to_markdown(
+                            instance_rows,
+                            ["INSTANCE", "exec_count", "avg_s", "total_s"],
+                        )
+                        tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                         text = (
                             "Slow query summary (managed fallback):\n\n"
-                            "Digests:\n" + json.dumps(rd[:10] if isinstance(rd, list) else rd, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nInstances:\n" + json.dumps(ri[:10] if isinstance(ri, list) else ri, indent=2, ensure_ascii=False, default=str) +
-                            "\n\nTables:\n" + json.dumps(tables_rows, indent=2, ensure_ascii=False, default=str)
+                            f"{digest_md}\n\n"
+                            "Instance hotspots:\n\n"
+                            f"{instance_md}\n\n"
+                            "Impacted tables:\n\n"
+                            f"{tables_md}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
