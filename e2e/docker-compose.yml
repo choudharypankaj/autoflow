@@ -18,6 +18,10 @@ services:
       - "5001:80"
     env_file:
       - .env.backend
+    environment:
+      LOG_LEVEL: DEBUG
+      SQLALCHEMY_LOG_LEVEL: INFO
+      ENVIRONMENT: local
     volumes:
       - ${E2E_DATA_STORAGE_DIR:-.data/storage}:/shared/data
     logging:
@@ -56,6 +60,10 @@ services:
       - "5555:5555"
     env_file:
       - .env.backend
+    environment:
+      LOG_LEVEL: DEBUG
+      SQLALCHEMY_LOG_LEVEL: INFO
+      ENVIRONMENT: local
     command: /usr/bin/supervisord
     volumes:
       - ${E2E_DATA_STORAGE_DIR:-.data/storage}:/shared/data
