@@ -102,10 +102,16 @@ async def _verify_ws(url: str) -> None:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
     except Exception:
-        raise HTTPException(
-            status_code=400,
-            detail="MCP Python SDK not available (need mcp.client.session and mcp.transport.websocket).",
-        )
+        try:
+            from mcp.client.websocket import WebSocketClient  # type: ignore
+            async with WebSocketClient(url) as client:  # type: ignore
+                await client.initialize()
+            return
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="MCP Python SDK not available (need mcp.client.session+mcp.transport.websocket or mcp.client.websocket).",
+            )
     async with WebSocketClientTransport(url) as transport:  # type: ignore
         async with ClientSession(transport) as session:  # type: ignore
             await session.initialize()

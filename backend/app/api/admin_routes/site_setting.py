@@ -78,10 +78,16 @@ def update_site_setting(
                 from mcp.client.session import ClientSession  # type: ignore
                 from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
             except Exception:
-                raise HTTPException(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail="MCP Python SDK not available (need mcp.client.session and mcp.transport.websocket).",
-                )
+                try:
+                    from mcp.client.websocket import WebSocketClient  # type: ignore
+                    async with WebSocketClient(href) as client:  # type: ignore
+                        await client.initialize()
+                    return
+                except Exception:
+                    raise HTTPException(
+                        status_code=HTTPStatus.BAD_REQUEST,
+                        detail="MCP Python SDK not available (need mcp.client.session+mcp.transport.websocket or mcp.client.websocket).",
+                    )
             async with WebSocketClientTransport(href) as transport:  # type: ignore
                 async with ClientSession(transport) as session:  # type: ignore
                     await session.initialize()

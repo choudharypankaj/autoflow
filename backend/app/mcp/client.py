@@ -16,12 +16,19 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.websocket import WebSocketClientTransport  # type: ignore
     except Exception as e:
-        raise RuntimeError(
-            "MCP Python SDK not available (expected mcp.client.session and mcp.transport.websocket). "
-            "Install the official SDK into the app venv, e.g.: "
-            "/app/.venv/bin/python -m pip install 'mcp[client] @ "
-            "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
-        ) from e
+        # Fallback: older mcp client API if present
+        try:
+            from mcp.client.websocket import WebSocketClient  # type: ignore
+            async with WebSocketClient(mcp_url) as client:  # type: ignore
+                await client.initialize()
+                return await client.call_tool(tool, params)
+        except Exception as e2:
+            raise RuntimeError(
+                "MCP Python SDK not available. Expected mcp.client.session + mcp.transport.websocket "
+                "or legacy mcp.client.websocket. Install the official SDK into the app venv, e.g.: "
+                "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+                "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
+            ) from e2
     async with WebSocketClientTransport(mcp_url) as transport:  # type: ignore
         async with ClientSession(transport) as session:  # type: ignore
             await session.initialize()

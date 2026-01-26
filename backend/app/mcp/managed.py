@@ -70,12 +70,19 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         from mcp.client.session import ClientSession  # type: ignore
         from mcp.transport.stdio import StdioClientTransport  # type: ignore
     except Exception as e:
-        raise RuntimeError(
-            "MCP Python SDK not available (expected mcp.client.session and mcp.transport.stdio). "
-            "Install the official SDK into the app venv, e.g.: "
-            "/app/.venv/bin/python -m pip install 'mcp[client] @ "
-            "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
-        ) from e
+        # Fallback: older mcp client API if present
+        try:
+            from mcp.client.stdio import StdioClient  # type: ignore
+            async with StdioClient(cmd, env=env) as client:  # type: ignore
+                await client.initialize()
+                return await client.call_tool(tool, params)
+        except Exception as e2:
+            raise RuntimeError(
+                "MCP Python SDK not available. Expected mcp.client.session + mcp.transport.stdio "
+                "or legacy mcp.client.stdio. Install the official SDK into the app venv, e.g.: "
+                "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+                "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
+            ) from e2
     async with StdioClientTransport(command=cmd, env=env) as transport:  # type: ignore
         async with ClientSession(transport) as session:  # type: ignore
             await session.initialize()
