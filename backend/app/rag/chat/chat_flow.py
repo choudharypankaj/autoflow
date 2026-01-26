@@ -585,12 +585,33 @@ class ChatFlow:
                     result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
 
                 # Render concise summary
-                def _normalize_rows(result: Any) -> list:
-                    if isinstance(result, list):
+                def _parse_mcp_text_result(result: Any) -> Any:
+                    if not isinstance(result, dict):
                         return result
-                    if isinstance(result, dict):
+                    content = result.get("content")
+                    if not isinstance(content, list):
+                        return result
+                    for item in content:
+                        text = None
+                        if isinstance(item, dict):
+                            text = item.get("text")
+                        else:
+                            text = getattr(item, "text", None)
+                        if not text:
+                            continue
+                        try:
+                            return json.loads(text)
+                        except Exception:
+                            continue
+                    return result
+
+                def _normalize_rows(result: Any) -> list:
+                    parsed = _parse_mcp_text_result(result)
+                    if isinstance(parsed, list):
+                        return parsed
+                    if isinstance(parsed, dict):
                         for key in ("rows", "data", "result"):
-                            value = result.get(key)
+                            value = parsed.get(key)
                             if isinstance(value, list):
                                 return value
                     return []
