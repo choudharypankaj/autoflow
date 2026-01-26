@@ -15,7 +15,7 @@ class MCPNotConfigured(Exception):
 
 async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
     try:
-        from mcp.client.websocket import WebSocketClient  # type: ignore
+        ws_mod = importlib.import_module("mcp.client.websocket")
     except Exception as e:
         diagnostics: Dict[str, Any] = {"mcp_version": None, "mcp_client_websocket_attrs": None}
         try:
@@ -36,9 +36,31 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
             "/app/.venv/bin/python -m pip install 'mcp[client] @ "
             "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
         ) from e
-    async with WebSocketClient(mcp_url) as client:  # type: ignore
-        await client.initialize()
-        return await client.call_tool(tool, params)
+    # Path A: WebSocketClient class
+    if hasattr(ws_mod, "WebSocketClient"):
+        WebSocketClient = getattr(ws_mod, "WebSocketClient")
+        async with WebSocketClient(mcp_url) as client:  # type: ignore
+            await client.initialize()
+            return await client.call_tool(tool, params)
+    # Path B: websocket_client + ClientSession
+    if hasattr(ws_mod, "websocket_client"):
+        websocket_client = getattr(ws_mod, "websocket_client")
+        session_mod = importlib.import_module("mcp.client.session")
+        ClientSession = getattr(session_mod, "ClientSession")
+        async with websocket_client(mcp_url) as (read_stream, write_stream):  # type: ignore
+            async with ClientSession(read_stream, write_stream) as session:  # type: ignore
+                await session.initialize()
+                return await session.call_tool(tool, params)
+    logger.error(
+        "MCP websocket module missing WebSocketClient/websocket_client: %s",
+        sorted({name for name in dir(ws_mod) if not name.startswith("_")}),
+    )
+    raise RuntimeError(
+        "MCP Python SDK not available (expected mcp.client.websocket WebSocketClient or websocket_client). "
+        "Install the official SDK into the app venv, e.g.: "
+        "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+        "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
+    )
 
 
 def _select_mcp_host(preferred_name: str | None = None) -> str:

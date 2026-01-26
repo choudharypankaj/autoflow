@@ -71,7 +71,7 @@ def _resolve_db_credentials(agent: Dict[str, Any]) -> Dict[str, str]:
 async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]) -> Any:
     cmd = [sys.executable, "-m", "pytidb.ext.mcp"]
     try:
-        from mcp.client.stdio import StdioClient  # type: ignore
+        stdio_mod = importlib.import_module("mcp.client.stdio")
     except Exception as e:
         diagnostics: Dict[str, Any] = {"mcp_version": None, "mcp_client_stdio_attrs": None}
         try:
@@ -92,10 +92,33 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
             "/app/.venv/bin/python -m pip install 'mcp[client] @ "
             "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
         ) from e
-    async with StdioClient(cmd, env=env) as client:  # type: ignore
-        await client.initialize()
-        # ClientSession is exposed but not needed for stdio in this SDK layout.
-        return await client.call_tool(tool, params)
+    # Path A: StdioClient class
+    if hasattr(stdio_mod, "StdioClient"):
+        StdioClient = getattr(stdio_mod, "StdioClient")
+        async with StdioClient(cmd, env=env) as client:  # type: ignore
+            await client.initialize()
+            return await client.call_tool(tool, params)
+    # Path B: stdio_client + ClientSession
+    if hasattr(stdio_mod, "stdio_client") and hasattr(stdio_mod, "StdioServerParameters"):
+        stdio_client = getattr(stdio_mod, "stdio_client")
+        StdioServerParameters = getattr(stdio_mod, "StdioServerParameters")
+        session_mod = importlib.import_module("mcp.client.session")
+        ClientSession = getattr(session_mod, "ClientSession")
+        server_params = StdioServerParameters(command=cmd, env=env)
+        async with stdio_client(server_params) as (read_stream, write_stream):  # type: ignore
+            async with ClientSession(read_stream, write_stream) as session:  # type: ignore
+                await session.initialize()
+                return await session.call_tool(tool, params)
+    logger.error(
+        "MCP stdio module missing StdioClient/stdio_client: %s",
+        sorted({name for name in dir(stdio_mod) if not name.startswith("_")}),
+    )
+    raise RuntimeError(
+        "MCP Python SDK not available (expected mcp.client.stdio StdioClient or stdio_client). "
+        "Install the official SDK into the app venv, e.g.: "
+        "/app/.venv/bin/python -m pip install 'mcp[client] @ "
+        "git+https://github.com/modelcontextprotocol/python-sdk@v0.1.0'"
+    )
 
 
 def run_managed_mcp_db_query(agent_name: str, sql: str) -> Any:
