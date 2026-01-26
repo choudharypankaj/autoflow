@@ -585,8 +585,19 @@ class ChatFlow:
                     result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
 
                 # Render concise summary
-                def rows_to_markdown(rows: Any, columns: list[str]) -> str:
-                    if not isinstance(rows, list) or not rows:
+                def _normalize_rows(result: Any) -> list:
+                    if isinstance(result, list):
+                        return result
+                    if isinstance(result, dict):
+                        for key in ("rows", "data", "result"):
+                            value = result.get(key)
+                            if isinstance(value, list):
+                                return value
+                    return []
+
+                def rows_to_markdown(result: Any, columns: list[str]) -> str:
+                    rows = _normalize_rows(result)
+                    if not rows:
                         return "(no data)"
                     # normalize dict rows
                     lines = []
@@ -614,18 +625,17 @@ class ChatFlow:
                 )
                 # Impacted tables derived from digest sample_query
                 tables_agg: dict[str, dict] = {}
-                if isinstance(result_digest, list):
-                    for r in result_digest:
-                        if not isinstance(r, dict):
-                            continue
-                        sample = r.get("sample_query") or ""
-                        exec_count = float(r.get("exec_count") or 0)
-                        avg_s = float(r.get("avg_s") or 0.0)
-                        total_s = exec_count * avg_s
-                        for t in _extract_tables_from_sql(str(sample)):
-                            agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
-                            agg["exec_count"] += int(exec_count)
-                            agg["total_s"] += total_s
+                for r in _normalize_rows(result_digest):
+                    if not isinstance(r, dict):
+                        continue
+                    sample = r.get("sample_query") or ""
+                    exec_count = float(r.get("exec_count") or 0)
+                    avg_s = float(r.get("avg_s") or 0.0)
+                    total_s = exec_count * avg_s
+                    for t in _extract_tables_from_sql(str(sample)):
+                        agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                        agg["exec_count"] += int(exec_count)
+                        agg["total_s"] += total_s
                 tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                 # Cache compact meta for follow-ups
@@ -634,8 +644,8 @@ class ChatFlow:
                     "host_name": host_name,
                     "start": start_ts,
                     "end": end_ts,
-                    "digests": result_digest if isinstance(result_digest, list) else [],
-                    "instances": result_instance if isinstance(result_instance, list) else [],
+                    "digests": _normalize_rows(result_digest),
+                    "instances": _normalize_rows(result_instance),
                     "tables": tables_rows,
                 })
                 response_text = (
