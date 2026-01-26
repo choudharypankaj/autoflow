@@ -104,7 +104,7 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         StdioServerParameters = getattr(stdio_mod, "StdioServerParameters")
         session_mod = importlib.import_module("mcp.client.session")
         ClientSession = getattr(session_mod, "ClientSession")
-        server_params = StdioServerParameters(command=cmd, env=env)
+        server_params = StdioServerParameters(command=" ".join(cmd), env=env)
         async with stdio_client(server_params) as (read_stream, write_stream):  # type: ignore
             async with ClientSession(read_stream, write_stream) as session:  # type: ignore
                 await session.initialize()
