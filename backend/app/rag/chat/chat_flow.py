@@ -891,10 +891,6 @@ class ChatFlow:
                     digest_rows,
                     ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                 )
-                instance_md = rows_to_markdown(
-                    instance_rows,
-                    ["INSTANCE", "exec_count", "avg_s", "total_s"],
-                )
                 # Impacted tables derived from digest sample_query
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                 # Cache compact meta for follow-ups
@@ -970,8 +966,6 @@ class ChatFlow:
                     f"{recommendations_text}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
-                    "Instance hotspots:\n\n"
-                    f"{instance_md}\n\n"
                     "Impacted tables:\n\n"
                     f"{tables_md}"
                 )
