@@ -921,11 +921,29 @@ class ChatFlow:
                                 sample_queries.append(sample[:200])
                 sample_queries_text = "\n".join(f"- {q}" for q in sample_queries) or "(no data)"
 
+                # Recommendations based on summary signals
+                recommendations: list[str] = []
+                if isinstance(top_digest, dict):
+                    max_s = float(top_digest.get("max_s") or 0.0)
+                    skipped_sum = float(top_digest.get("skipped_sum") or 0.0)
+                    exec_count = int(top_digest.get("exec_count") or 0)
+                    if max_s >= 1.0:
+                        recommendations.append("Investigate the slowest query (max_s >= 1s); review query plan and indexes.")
+                    if skipped_sum >= 50000:
+                        recommendations.append("High rocksdb_key_skipped_count; check for inefficient range scans or missing indexes.")
+                    if exec_count >= 50:
+                        recommendations.append("High exec_count; consider caching or batching to reduce repeated execution.")
+                if not recommendations:
+                    recommendations.append("No obvious hotspots detected from the top results; consider widening the time window.")
+                recommendations_text = "\n".join(f"- {r}" for r in recommendations)
+
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
                     "Sample queries:\n\n"
                     f"{sample_queries_text}\n\n"
+                    "Recommendations:\n\n"
+                    f"{recommendations_text}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Instance hotspots:\n\n"
