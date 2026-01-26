@@ -84,6 +84,7 @@ function NavContent () {
               ? <NavWarningDetails>You need to configure default Chat Engine.</NavWarningDetails>
               : <ChatEnginesNavDetails />,
         },
+        { href: '/mcp/hosts', title: 'MCP Hosts' },
         {
           parent: true,
           key: 'models',
