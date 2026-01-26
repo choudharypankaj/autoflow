@@ -36,3 +36,22 @@ def list_mcp_agents() -> dict:
             names.append(n)
     return {"agents": names}
 
+
+@router.get("/mcp/hosts")
+def list_mcp_hosts() -> dict:
+    """
+    Returns MCP WebSocket hosts with names and URLs from site settings.
+    """
+    SiteSetting.update_db_cache()
+    ws = getattr(SiteSetting, "mcp_hosts", None) or []
+    hosts = []
+    for item in ws:
+        try:
+            name = str(item.get("text", "")).strip()
+            href = str(item.get("href", "")).strip()
+            if name and href:
+                hosts.append({"text": name, "href": href})
+        except Exception:
+            continue
+    return {"hosts": hosts}
+
