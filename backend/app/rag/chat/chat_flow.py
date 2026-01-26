@@ -835,13 +835,16 @@ class ChatFlow:
                     pretty = json.dumps(parsed_result, indent=2, ensure_ascii=False, default=str)
                 else:
                     pretty = str(parsed_result)
-                # Force-strip MCP wrapper if it still appears
+                # Hard strip MCP wrapper if it still appears
                 if "meta=None content=[TextContent" in pretty and "text=" in pretty:
                     cleaned = _coerce_text_payload(pretty)
                     if isinstance(cleaned, (list, dict)):
                         pretty = json.dumps(cleaned, indent=2, ensure_ascii=False, default=str)
                     else:
                         pretty = str(cleaned)
+                # As a last resort, remove wrapper prefix and keep JSON substring only
+                if "meta=None content=[TextContent" in pretty and "{" in pretty:
+                    pretty = pretty[pretty.find("{") :]
                 # Cache compact meta for follow-ups (limit rows)
                 compact_rows: list[dict] = []
                 if isinstance(parsed_result, list):
