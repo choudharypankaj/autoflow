@@ -410,20 +410,6 @@ class ChatFlow:
                 "order by total_s desc "
                 "limit 10"
             )
-            # Impacted tables summary (if table_names available in TiDB version)
-            sql_tables = (
-                "select "
-                "table_names, "
-                "count(*) as exec_count, "
-                "round(sum(query_time), 3) as total_s "
-                "from information_schema.CLUSTER_SLOW_QUERY "
-                "where is_internal = false "
-                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                "and table_names is not null and table_names != '' "
-                "group by table_names "
-                "order by total_s desc "
-                "limit 10"
-            )
         else:
             sql = (
                 "select Time, INSTANCE, query_time, "
@@ -452,14 +438,11 @@ class ChatFlow:
                 # Run both summaries
                 if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
-
                     result_digest = run_managed_mcp_db_query(host_name, sql_digest)
                     result_instance = run_managed_mcp_db_query(host_name, sql_instance)
-                    result_tables = run_managed_mcp_db_query(host_name, sql_tables)
                 else:
                     result_digest = run_mcp_db_query(sql_digest, host_name=host_name)
                     result_instance = run_mcp_db_query(sql_instance, host_name=host_name)
-                    result_tables = run_mcp_db_query(sql_tables, host_name=host_name)
 
                 # Render concise summary
                 def rows_to_markdown(rows: Any, columns: list[str]) -> str:
