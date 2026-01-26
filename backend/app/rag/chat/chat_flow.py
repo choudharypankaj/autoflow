@@ -759,7 +759,21 @@ class ChatFlow:
                     "instances": instance_rows,
                     "tables": tables_rows,
                 })
+                # High-level summary
+                top_digest = digest_rows[0] if isinstance(digest_rows, list) and digest_rows else {}
+                top_instance = instance_rows[0] if isinstance(instance_rows, list) and instance_rows else {}
+                summary_lines = [
+                    f"Time window (UTC): {start_ts} to {end_ts}",
+                    f"Host: {host_name or 'default'}",
+                    f"Top digest exec_count: {top_digest.get('exec_count', '(n/a)')}",
+                    f"Top digest max_s: {top_digest.get('max_s', '(n/a)')}",
+                    f"Top instance: {top_instance.get('INSTANCE', '(n/a)')}",
+                ]
+                summary_text = "\n".join(f"- {line}" for line in summary_lines)
+
                 response_text = (
+                    "Slow query summary (high-level):\n\n"
+                    f"{summary_text}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Instance hotspots:\n\n"
@@ -780,14 +794,17 @@ class ChatFlow:
                     # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
                     result = run_mcp_db_query(sql, host_name=host_name)
                 # Best-effort formatting
-                if isinstance(result, (list, dict)):
-                    pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str)
+                parsed_result = _parse_mcp_text_result(result)
+                if isinstance(parsed_result, str):
+                    parsed_result = _coerce_text_payload(parsed_result)
+                if isinstance(parsed_result, (list, dict)):
+                    pretty = json.dumps(parsed_result, indent=2, ensure_ascii=False, default=str)
                 else:
-                    pretty = str(result)
+                    pretty = str(parsed_result)
                 # Cache compact meta for follow-ups (limit rows)
                 compact_rows: list[dict] = []
-                if isinstance(result, list):
-                    for r in result[:20]:
+                if isinstance(parsed_result, list):
+                    for r in parsed_result[:20]:
                         if isinstance(r, dict):
                             compact_rows.append({
                                 "Time": _json_safe(r.get("Time")),
