@@ -99,11 +99,11 @@ async def _verify_ws(url: str) -> None:
     if not (url.startswith("ws://") or url.startswith("wss://")):
         raise HTTPException(status_code=400, detail="mcp_ws_url must be ws:// or wss://")
     try:
-        from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
+        from mcp.client.websocket import WebSocketClient  # type: ignore
     except Exception:
         raise HTTPException(
             status_code=400,
-            detail="modelcontextprotocol is not installed on server",
+            detail="mcp is not installed on server",
         )
     async with WebSocketClient(url) as client:  # type: ignore
         await client.initialize()

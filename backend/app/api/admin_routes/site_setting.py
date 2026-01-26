@@ -75,11 +75,11 @@ def update_site_setting(
 
         async def _check_ws(href: str) -> None:
             try:
-                from modelcontextprotocol.client.websocket import WebSocketClient  # type: ignore
+                from mcp.client.websocket import WebSocketClient  # type: ignore
             except Exception:
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
-                    detail="modelcontextprotocol is not installed on server",
+                    detail="mcp is not installed on server",
                 )
             async with WebSocketClient(href) as client:
                 await client.initialize()

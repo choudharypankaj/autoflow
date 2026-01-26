@@ -68,11 +68,11 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
     # Extract once so fallback never references an undefined variable
     query_sql = str((params or {}).get("sql", ""))
     try:
-        from modelcontextprotocol.client.stdio import StdioClient  # type: ignore
+        from mcp.client.stdio import StdioClient  # type: ignore
     except Exception as e:
         raise RuntimeError(
-            "modelcontextprotocol is not installed or incompatible. Unable to run MCP tool. "
-            "Please install 'modelcontextprotocol' in the backend environment."
+            "MCP Python SDK is not installed or incompatible. Unable to run MCP tool. "
+            "Please install 'mcp' in the backend environment."
         ) from e
 
     cmd = [sys.executable, "-m", "pytidb.ext.mcp"]

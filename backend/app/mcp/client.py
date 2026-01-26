@@ -14,11 +14,11 @@ class MCPNotConfigured(Exception):
 async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
     try:
         # Lazy import to avoid hard dependency at import time
-        from modelcontextprotocol.client.websocket import WebSocketClient
+        from mcp.client.websocket import WebSocketClient
     except Exception as e:
         raise RuntimeError(
-            "modelcontextprotocol is not installed or incompatible. "
-            "Please install 'modelcontextprotocol' in the backend environment."
+            "MCP Python SDK is not installed or incompatible. "
+            "Please install 'mcp' in the backend environment."
         ) from e
 
     async with WebSocketClient(mcp_url) as client:
