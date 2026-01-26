@@ -3,6 +3,7 @@ import logging
 import importlib
 from importlib import metadata as importlib_metadata
 import os
+import shutil
 import sys
 from typing import Any, Dict, Optional
 
@@ -104,7 +105,23 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         StdioServerParameters = getattr(stdio_mod, "StdioServerParameters")
         session_mod = importlib.import_module("mcp.client.session")
         ClientSession = getattr(session_mod, "ClientSession")
-        server_params = StdioServerParameters(command=" ".join(cmd), env=env)
+        # Build StdioServerParameters with correct shape for this SDK version
+        field_names = set(getattr(StdioServerParameters, "model_fields", {}).keys())
+        preferred_exe = "/app/.venv/bin/python"
+        command_exe = preferred_exe if os.path.exists(preferred_exe) else sys.executable
+        if not os.path.exists(command_exe):
+            resolved = shutil.which(command_exe) if command_exe else None
+            logger.error("MCP stdio command not found: %s (resolved=%s)", command_exe, resolved)
+        params = {"command": command_exe, "env": env}
+        if "args" in field_names:
+            params["args"] = ["-m", "pytidb.ext.mcp"]
+        elif "command_args" in field_names:
+            params["command_args"] = ["-m", "pytidb.ext.mcp"]
+        else:
+            # Fallback: single string command
+            params["command"] = f"{command_exe} -m pytidb.ext.mcp"
+        logger.info("MCP stdio params: %s", params)
+        server_params = StdioServerParameters(**params)
         async with stdio_client(server_params) as (read_stream, write_stream):  # type: ignore
             async with ClientSession(read_stream, write_stream) as session:  # type: ignore
                 await session.initialize()
