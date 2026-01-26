@@ -795,6 +795,12 @@ class ChatFlow:
                             return [parsed]
                     return []
 
+                def _clean_cell(value: Any) -> str:
+                    text = str(value) if value is not None else ""
+                    # remove control characters / non-printable
+                    text = "".join(ch if ch.isprintable() else " " for ch in text)
+                    return " ".join(text.split())
+
                 def rows_to_markdown(result: Any, columns: list[str]) -> str:
                     rows = _normalize_rows(result)
                     if not rows:
@@ -807,11 +813,11 @@ class ChatFlow:
                     lines.append(sep)
                     for r in rows[:10]:
                         if isinstance(r, dict):
-                            values = [str(r.get(c, "")) for c in columns]
+                            values = [_clean_cell(r.get(c, "")) for c in columns]
                         elif isinstance(r, (list, tuple)):
-                            values = [str(x) for x in r[: len(columns)]]
+                            values = [_clean_cell(x) for x in r[: len(columns)]]
                         else:
-                            values = [str(r)]
+                            values = [_clean_cell(r)]
                         lines.append(" | ".join(values))
                     return "\n".join(lines)
 
