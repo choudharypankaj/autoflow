@@ -2,11 +2,40 @@ import asyncio
 import logging
 import importlib
 from importlib import metadata as importlib_metadata
+import json
+import ast
+import re
 from typing import Any, Dict
 
 from app.site_settings import SiteSetting
 
 logger = logging.getLogger(__name__)
+def _unwrap_mcp_result(result: Any) -> Any:
+    if isinstance(result, dict):
+        content = result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
+                if not text:
+                    continue
+                if isinstance(text, str) and "TextContent" in text and "text=" in text:
+                    match = re.search(r"text='((?:\\'|[^'])*?)'|text=\"((?:\\\"|[^\"])*?)\"", text, flags=re.DOTALL)
+                    if match:
+                        raw = match.group(1) or match.group(2) or ""
+                        try:
+                            text = ast.literal_eval(f"'{raw}'" if match.group(1) else f'\"{raw}\"')
+                        except Exception:
+                            pass
+                if isinstance(text, str):
+                    try:
+                        return json.loads(text)
+                    except Exception:
+                        try:
+                            return ast.literal_eval(text)
+                        except Exception:
+                            return text
+    return result
+
 
 
 class MCPNotConfigured(Exception):
@@ -43,7 +72,8 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
             await client.initialize()
             if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
                 params = {**params, "sql_stmt": params["sql"]}
-            return await client.call_tool(tool, params)
+            result = await client.call_tool(tool, params)
+            return _unwrap_mcp_result(result)
     # Path B: websocket_client + ClientSession
     if hasattr(ws_mod, "websocket_client"):
         websocket_client = getattr(ws_mod, "websocket_client")
@@ -54,7 +84,8 @@ async def _run_ws_tool(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
                 await session.initialize()
                 if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
                     params = {**params, "sql_stmt": params["sql"]}
-                return await session.call_tool(tool, params)
+                result = await session.call_tool(tool, params)
+                return _unwrap_mcp_result(result)
     logger.error(
         "MCP websocket module missing WebSocketClient/websocket_client: %s",
         sorted({name for name in dir(ws_mod) if not name.startswith("_")}),
