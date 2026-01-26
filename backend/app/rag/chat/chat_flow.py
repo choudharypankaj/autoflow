@@ -941,11 +941,21 @@ class ChatFlow:
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
 
+                sql_used = (
+                    "SELECT Time, INSTANCE, query_time, SUBSTRING(query, 1, 2000) AS query, rocksdb_key_skipped_count "
+                    "FROM information_schema.CLUSTER_SLOW_QUERY "
+                    "WHERE is_internal = false "
+                    f"AND Time BETWEEN '{start_ts}' AND '{end_ts}' "
+                    "ORDER BY rocksdb_key_skipped_count DESC "
+                    "LIMIT 20;"
+                )
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
                     "Recommendations:\n\n"
                     f"{recommendations_text}\n\n"
+                    "Query used:\n\n"
+                    f"{sql_used}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Impacted tables:\n\n"
