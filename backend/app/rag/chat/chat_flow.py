@@ -531,7 +531,7 @@ class ChatFlow:
                 "where is_internal = false "
                 f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
                 "order by rocksdb_key_skipped_count desc "
-                "limit 500"
+                "limit 20"
             )
         else:
             sql = (
@@ -791,6 +791,12 @@ class ChatFlow:
                         sample = str(row.get("sample_query") or "").strip()
                         if sample:
                             sample_queries.append(sample)
+                if not sample_queries:
+                    for row in raw_rows[:5]:
+                        if isinstance(row, dict):
+                            sample = str(row.get("query") or "").strip()
+                            if sample:
+                                sample_queries.append(sample[:200])
                 sample_queries_text = "\n".join(f"- {q}" for q in sample_queries) or "(no data)"
 
                 response_text = (
