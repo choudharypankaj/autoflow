@@ -63,6 +63,21 @@ def _json_safe(value: Any) -> Any:
     except Exception:
         return str(value)
 
+def _extract_tables_from_sql(sql_text: str) -> list[str]:
+    """
+    Best-effort extractor for table names from SQL using FROM/JOIN patterns.
+    Returns lowercased table identifiers without schema/quotes.
+    """
+    if not isinstance(sql_text, str):
+        return []
+    matches = re.findall(r"\\b(?:from|join)\\s+([`\"\\w\\.]+)", sql_text, flags=re.IGNORECASE)
+    tables: list[str] = []
+    for m in matches:
+        t = m.strip('`\"').split('.')[-1].lower()
+        if t:
+            tables.append(t)
+    return tables
+
 
 def parse_chat_messages(
     chat_messages: List[ChatMessage],
