@@ -621,6 +621,19 @@ class ChatFlow:
                                 return _coerce_text_payload(str(extracted))
                         except Exception:
                             pass
+                    # Regex fallback for wrapper with escaped quotes/newlines
+                    for pattern, wrap in [
+                        (r"text='((?:\\'|[^'])*?)'", "'"),
+                        (r'text="((?:\\"|[^"])*?)"', '"'),
+                    ]:
+                        match = re.search(pattern, text, flags=re.DOTALL)
+                        if match:
+                            try:
+                                literal = f"{wrap}{match.group(1)}{wrap}"
+                                extracted = ast.literal_eval(literal)
+                                return _coerce_text_payload(str(extracted))
+                            except Exception:
+                                continue
                     # Generic wrapper cleanup: strip any leading metadata before JSON
                     if "meta=None content=" in text and "{" in text:
                         text = text[text.find("{") :]
