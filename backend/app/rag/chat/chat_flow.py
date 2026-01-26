@@ -558,12 +558,21 @@ class ChatFlow:
 
         try:
             if summary_mode:
-                # Run raw query and summarize in-app
-                if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
-                    from app.mcp.managed import run_managed_mcp_db_query  # local import
-                    result_rows = run_managed_mcp_db_query(host_name, sql_rows)
-                else:
-                    result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
+                # Prefer cached raw rows from the last slow-query run if they match the same window/host.
+                result_rows = None
+                cached = getattr(self, "_cached_slow_query_meta", None)
+                if isinstance(cached, dict) and cached.get("type") == "slow_query_rows":
+                    same_host = (cached.get("host_name") or "") == (host_name or "")
+                    same_window = cached.get("start") == start_ts and cached.get("end") == end_ts
+                    if same_host and same_window and isinstance(cached.get("rows"), list):
+                        result_rows = cached.get("rows")
+                # Otherwise run raw query and summarize in-app
+                if result_rows is None:
+                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                        from app.mcp.managed import run_managed_mcp_db_query  # local import
+                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
+                    else:
+                        result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
 
                 # Render concise summary
                 def _coerce_text_payload(text: str) -> Any:
