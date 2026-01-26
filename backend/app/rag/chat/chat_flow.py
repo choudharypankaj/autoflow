@@ -831,24 +831,42 @@ class ChatFlow:
                 parsed_result = _parse_mcp_text_result(result)
                 if isinstance(parsed_result, str):
                     parsed_result = _coerce_text_payload(parsed_result)
-                if isinstance(parsed_result, (list, dict)):
-                    pretty = json.dumps(parsed_result, indent=2, ensure_ascii=False, default=str)
+
+                def _clean_value(value: Any) -> str:
+                    text = str(value) if value is not None else ""
+                    text = text.replace("\n", " ").replace("\r", " ")
+                    return " ".join(text.split())
+
+                rows = _normalize_rows(parsed_result)
+                if rows:
+                    # Render a clean table to avoid wrapper noise and escaped newlines
+                    columns = ["Time", "INSTANCE", "query_time", "query", "rocksdb_key_skipped_count"]
+                    lines = []
+                    header = " | ".join(columns)
+                    sep = " | ".join(["---"] * len(columns))
+                    lines.append(header)
+                    lines.append(sep)
+                    for r in rows[:20]:
+                        if isinstance(r, dict):
+                            values = [
+                                _clean_value(r.get("Time")),
+                                _clean_value(r.get("INSTANCE")),
+                                _clean_value(r.get("query_time")),
+                                _clean_value(r.get("query"))[:200],
+                                _clean_value(r.get("rocksdb_key_skipped_count")),
+                            ]
+                        elif isinstance(r, (list, tuple)):
+                            values = [_clean_value(x) for x in r[: len(columns)]]
+                        else:
+                            values = [_clean_value(r)]
+                        lines.append(" | ".join(values))
+                    pretty = "\n".join(lines)
                 else:
-                    pretty = str(parsed_result)
-                # Hard strip MCP wrapper if it still appears
-                if "meta=None content=[TextContent" in pretty and "text=" in pretty:
-                    cleaned = _coerce_text_payload(pretty)
-                    if isinstance(cleaned, (list, dict)):
-                        pretty = json.dumps(cleaned, indent=2, ensure_ascii=False, default=str)
-                    else:
-                        pretty = str(cleaned)
-                # As a last resort, remove wrapper prefix and keep JSON substring only
-                if "meta=None content=[TextContent" in pretty and "{" in pretty:
-                    pretty = pretty[pretty.find("{") :]
+                    pretty = _clean_value(parsed_result)
                 # Cache compact meta for follow-ups (limit rows)
                 compact_rows: list[dict] = []
-                if isinstance(parsed_result, list):
-                    for r in parsed_result[:20]:
+                if isinstance(rows, list):
+                    for r in rows[:20]:
                         if isinstance(r, dict):
                             compact_rows.append({
                                 "Time": _json_safe(r.get("Time")),
@@ -907,10 +925,7 @@ class ChatFlow:
                     else:
                         result = run_managed_mcp_db_query(host_name, sql)
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
-                        response_text = (
-                            "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
-                            f"{pretty}"
-                        )
+                        response_text = f"{pretty}"
                         if len(response_text) > MAX_CHAT_RESULT_CHARS:
                             response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                         return response_text
@@ -959,10 +974,7 @@ class ChatFlow:
                     else:
                         result = run_managed_mcp_db_query(fallback_name, sql)
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
-                        response_text = (
-                            "Here are the top slow queries by rocksdb_key_skipped_count:\n\n"
-                            f"{pretty}"
-                        )
+                        response_text = f"{pretty}"
                         if len(response_text) > MAX_CHAT_RESULT_CHARS:
                             response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                         return response_text
