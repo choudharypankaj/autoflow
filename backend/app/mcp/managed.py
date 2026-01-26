@@ -114,22 +114,23 @@ async def _run_stdio_tool(env: Dict[str, str], tool: str, params: Dict[str, Any]
         if not os.path.exists(command_exe):
             resolved = shutil.which(command_exe) if command_exe else None
             logger.error("MCP stdio command not found: %s (resolved=%s)", command_exe, resolved)
-        params = {"command": command_exe, "env": env}
+        server_params_data = {"command": command_exe, "env": env}
         if "args" in field_names:
-            params["args"] = ["-m", "pytidb.ext.mcp"]
+            server_params_data["args"] = ["-m", "pytidb.ext.mcp"]
         elif "command_args" in field_names:
-            params["command_args"] = ["-m", "pytidb.ext.mcp"]
+            server_params_data["command_args"] = ["-m", "pytidb.ext.mcp"]
         else:
             # Fallback: single string command
-            params["command"] = f"{command_exe} -m pytidb.ext.mcp"
-        logger.info("MCP stdio params: %s", params)
-        server_params = StdioServerParameters(**params)
+            server_params_data["command"] = f"{command_exe} -m pytidb.ext.mcp"
+        logger.info("MCP stdio params: %s", server_params_data)
+        server_params = StdioServerParameters(**server_params_data)
         async with stdio_client(server_params) as (read_stream, write_stream):  # type: ignore
             async with ClientSession(read_stream, write_stream) as session:  # type: ignore
                 await session.initialize()
-                if tool == "db_query" and "sql" in params and "sql_stmt" not in params:
-                    params = {**params, "sql_stmt": params["sql"]}
-                return await session.call_tool(tool, params)
+                tool_params = params
+                if tool == "db_query" and "sql" in tool_params and "sql_stmt" not in tool_params:
+                    tool_params = {**tool_params, "sql_stmt": tool_params["sql"]}
+                return await session.call_tool(tool, tool_params)
     logger.error(
         "MCP stdio module missing StdioClient/stdio_client: %s",
         sorted({name for name in dir(stdio_mod) if not name.startswith("_")}),
