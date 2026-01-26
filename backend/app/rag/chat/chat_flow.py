@@ -341,6 +341,17 @@ class ChatFlow:
           - 2026-01-14 16:15:00 to 2026-01-14 16:47:00
           - start: 2026-01-14 16:15:00, end: 2026-01-14 16:47:00
         """
+        def _coerce_meta(meta_value: Any) -> Optional[dict]:
+            if isinstance(meta_value, dict):
+                return meta_value
+            if isinstance(meta_value, str):
+                try:
+                    parsed = json.loads(meta_value)
+                    return parsed if isinstance(parsed, dict) else None
+                except Exception:
+                    return None
+            return None
+
         # 0) Follow-up meta-only path: if user references last/summary/digest/instance/table,
         # try answering from the last assistant meta immediately.
         if re.search(r"\b(last|previous|summary|summarize|digest|instance|table)\b", user_question, flags=re.IGNORECASE):
@@ -349,10 +360,13 @@ class ChatFlow:
                 meta = None
                 for m in reversed(prior_messages):
                     try:
-                        if getattr(m, "role", "") == MessageRole.ASSISTANT.value and isinstance(m.meta, dict):
-                            t = str(m.meta.get("type", ""))
+                        if getattr(m, "role", "") == MessageRole.ASSISTANT.value:
+                            candidate = _coerce_meta(m.meta)
+                            if not candidate:
+                                continue
+                            t = str(candidate.get("type", ""))
                             if t in {"slow_query_summary", "slow_query_rows"}:
-                                meta = m.meta
+                                meta = candidate
                                 break
                     except Exception:
                         continue
@@ -506,10 +520,13 @@ class ChatFlow:
                     meta = None
                     for m in reversed(prior_messages):
                         try:
-                            if getattr(m, "role", "") == MessageRole.ASSISTANT.value and isinstance(m.meta, dict):
-                                t = str(m.meta.get("type", ""))
+                            if getattr(m, "role", "") == MessageRole.ASSISTANT.value:
+                                candidate = _coerce_meta(m.meta)
+                                if not candidate:
+                                    continue
+                                t = str(candidate.get("type", ""))
                                 if t in {"slow_query_summary", "slow_query_rows"}:
-                                    meta = m.meta
+                                    meta = candidate
                                     break
                         except Exception:
                             continue
