@@ -621,6 +621,9 @@ class ChatFlow:
                                 return _coerce_text_payload(str(extracted))
                         except Exception:
                             pass
+                    # Generic wrapper cleanup: strip any leading metadata before JSON
+                    if "meta=None content=" in text and "{" in text:
+                        text = text[text.find("{") :]
                     try:
                         return json.loads(text)
                     except Exception:
@@ -658,13 +661,20 @@ class ChatFlow:
                             text = getattr(item, "text", None)
                         if not text:
                             continue
-                        return _coerce_text_payload(text)
+                        parsed = _coerce_text_payload(text)
+                        logger.info("MCP text parsed type=%s", type(parsed).__name__)
+                        return parsed
                     return result
 
                 def _normalize_rows(result: Any) -> list:
                     parsed = _parse_mcp_text_result(result)
                     if isinstance(parsed, str):
                         parsed = _coerce_text_payload(parsed)
+                    logger.info(
+                        "MCP normalize_rows type=%s preview=%s",
+                        type(parsed).__name__,
+                        str(parsed)[:200].replace("\n", "\\n"),
+                    )
                     if isinstance(parsed, list):
                         return parsed
                     if isinstance(parsed, dict):
