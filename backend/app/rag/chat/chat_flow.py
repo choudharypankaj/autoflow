@@ -637,6 +637,38 @@ class ChatFlow:
             summary_mode = True
 
         # Construct SQLs
+        def _build_statement_summary_query(start_time: str, end_time: str) -> str:
+            return (
+                "SELECT "
+                "ANY_VALUE(digest_text) AS agg_digest_text, "
+                "ANY_VALUE(digest) AS agg_digest, "
+                "SUM(exec_count) AS agg_exec_count, "
+                "SUM(sum_latency) AS agg_sum_latency, "
+                "MAX(max_latency) AS agg_max_latency, "
+                "MIN(min_latency) AS agg_min_latency, "
+                "CAST(SUM(exec_count * avg_latency) / SUM(exec_count) AS SIGNED) AS agg_avg_latency, "
+                "ANY_VALUE(schema_name) AS agg_schema_name, "
+                "COUNT(DISTINCT plan_digest) AS agg_plan_count "
+                "FROM `INFORMATION_SCHEMA`.`CLUSTER_STATEMENTS_SUMMARY_HISTORY` "
+                f"WHERE summary_begin_time <= '{end_time}' "
+                f"AND summary_end_time >= '{start_time}' "
+                "GROUP BY schema_name, digest "
+                "ORDER BY agg_plan_count DESC "
+                "LIMIT 20"
+            )
+
+        def _latency_to_seconds(value: Any) -> float:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return 0.0
+            if num >= 1e9:
+                return num / 1e9
+            if num >= 1e6:
+                return num / 1e6
+            if num >= 1e3:
+                return num / 1e3
+            return num
 
         if summary_mode:
             # Run a single raw query and summarize in-app
@@ -920,6 +952,45 @@ class ChatFlow:
                 ]
                 summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
+                statement_sql = _build_statement_summary_query(start_ts, end_ts)
+                stmt_rows: list[dict] = []
+                try:
+                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                        from app.mcp.managed import run_managed_mcp_db_query  # local import
+                        stmt_result = run_managed_mcp_db_query(host_name, statement_sql)
+                    else:
+                        stmt_result = run_mcp_db_query(statement_sql, host_name=host_name)
+                    normalized_stmt_rows = _normalize_rows(stmt_result)
+                    if isinstance(normalized_stmt_rows, list):
+                        stmt_rows = [r for r in normalized_stmt_rows if isinstance(r, dict)]
+                except Exception as e:
+                    logger.exception("Statement summary query failed: %s", e)
+                    stmt_rows = []
+
+                stmt_table_rows = []
+                for r in stmt_rows[:10]:
+                    stmt_table_rows.append({
+                        "agg_digest": r.get("agg_digest", "-"),
+                        "agg_schema_name": r.get("agg_schema_name", "-"),
+                        "agg_plan_count": r.get("agg_plan_count", "-"),
+                        "agg_exec_count": r.get("agg_exec_count", "-"),
+                        "agg_sum_latency_s": round(_latency_to_seconds(r.get("agg_sum_latency")), 3),
+                        "agg_max_latency_s": round(_latency_to_seconds(r.get("agg_max_latency")), 3),
+                        "agg_avg_latency_s": round(_latency_to_seconds(r.get("agg_avg_latency")), 3),
+                    })
+                stmt_md = rows_to_markdown(
+                    stmt_table_rows,
+                    [
+                        "agg_digest",
+                        "agg_schema_name",
+                        "agg_plan_count",
+                        "agg_exec_count",
+                        "agg_sum_latency_s",
+                        "agg_max_latency_s",
+                        "agg_avg_latency_s",
+                    ],
+                )
+
                 # Recommendations derived from weighted signals
                 recommendations: list[dict] = []
                 if isinstance(top_digest, dict):
@@ -942,19 +1013,31 @@ class ChatFlow:
                     ]
                     recommendations = [r for r in rules if r["score"] > 0]
                     recommendations.sort(key=lambda r: r["score"], reverse=True)
+                if stmt_rows:
+                    top_stmt = stmt_rows[0]
+                    try:
+                        plan_count = int(top_stmt.get("agg_plan_count") or 0)
+                    except (TypeError, ValueError):
+                        plan_count = 0
+                    max_latency_s = _latency_to_seconds(top_stmt.get("agg_max_latency"))
+                    avg_latency_s = _latency_to_seconds(top_stmt.get("agg_avg_latency"))
+                    sum_latency_s = _latency_to_seconds(top_stmt.get("agg_sum_latency"))
+                    if plan_count >= 5 and (max_latency_s >= 1.0 or avg_latency_s >= 0.5):
+                        recommendations.append({
+                            "score": 3,
+                            "text": "High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.",
+                        })
+                    elif plan_count >= 5 and sum_latency_s > 0:
+                        recommendations.append({
+                            "score": 2,
+                            "text": "Multiple plans detected for this digest; check for plan cache instability and inconsistent parameter patterns.",
+                        })
+                    recommendations.sort(key=lambda r: r.get("score", 0), reverse=True)
                 if not recommendations:
                     recommendations_text = "- No obvious hotspots detected; consider widening the time window."
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
 
-                sql_used = (
-                    "SELECT Time, INSTANCE, query_time, SUBSTRING(query, 1, 2000) AS query, rocksdb_key_skipped_count "
-                    "FROM information_schema.CLUSTER_SLOW_QUERY "
-                    "WHERE is_internal = false "
-                    f"AND Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                    "ORDER BY rocksdb_key_skipped_count DESC "
-                    "LIMIT 20;"
-                )
                 formatted_rows = []
                 for r in raw_rows:
                     if isinstance(r, dict):
@@ -986,6 +1069,10 @@ class ChatFlow:
                     f"{summary_text}\n\n"
                     "Recommendations:\n\n"
                     f"{recommendations_text}\n\n"
+                    "Query summary (statement history):\n\n"
+                    f"```sql\n{statement_sql}\n```\n\n"
+                    "Statement summary (by digest):\n\n"
+                    f"{stmt_md}\n\n"
                     "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
@@ -1096,9 +1183,54 @@ class ChatFlow:
                             ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                         )
                         tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
+                        statement_sql = _build_statement_summary_query(start_ts, end_ts)
+                        stmt_rows = _normalize_rows(run_managed_mcp_db_query(host_name, statement_sql))
+                        stmt_table_rows = []
+                        for r in stmt_rows[:10]:
+                            if isinstance(r, dict):
+                                stmt_table_rows.append({
+                                    "agg_digest": r.get("agg_digest", "-"),
+                                    "agg_schema_name": r.get("agg_schema_name", "-"),
+                                    "agg_plan_count": r.get("agg_plan_count", "-"),
+                                    "agg_exec_count": r.get("agg_exec_count", "-"),
+                                    "agg_sum_latency_s": round(_latency_to_seconds(r.get("agg_sum_latency")), 3),
+                                    "agg_max_latency_s": round(_latency_to_seconds(r.get("agg_max_latency")), 3),
+                                    "agg_avg_latency_s": round(_latency_to_seconds(r.get("agg_avg_latency")), 3),
+                                })
+                        stmt_md = rows_to_markdown(
+                            stmt_table_rows,
+                            [
+                                "agg_digest",
+                                "agg_schema_name",
+                                "agg_plan_count",
+                                "agg_exec_count",
+                                "agg_sum_latency_s",
+                                "agg_max_latency_s",
+                                "agg_avg_latency_s",
+                            ],
+                        )
+                        stmt_reco = ""
+                        if stmt_rows:
+                            top_stmt = stmt_rows[0] if isinstance(stmt_rows[0], dict) else {}
+                            try:
+                                plan_count = int((top_stmt or {}).get("agg_plan_count") or 0)
+                            except (TypeError, ValueError):
+                                plan_count = 0
+                            max_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_max_latency"))
+                            avg_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_avg_latency"))
+                            if plan_count >= 5 and (max_latency_s >= 1.0 or avg_latency_s >= 0.5):
+                                stmt_reco = (
+                                    "Recommendation:\n"
+                                    "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
+                                )
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
+                            "Query summary (statement history):\n\n"
+                            f"```sql\n{statement_sql}\n```\n\n"
+                            "Statement summary (by digest):\n\n"
+                            f"{stmt_md}\n\n"
+                            f"{stmt_reco}"
                             "Impacted tables:\n\n"
                             f"{tables_md}"
                         )
@@ -1137,9 +1269,54 @@ class ChatFlow:
                             ["digest", "sample_query", "plan_digest", "exec_count", "avg_s", "max_s", "skipped_sum"],
                         )
                         tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
+                        statement_sql = _build_statement_summary_query(start_ts, end_ts)
+                        stmt_rows = _normalize_rows(run_managed_mcp_db_query(fallback_name, statement_sql))
+                        stmt_table_rows = []
+                        for r in stmt_rows[:10]:
+                            if isinstance(r, dict):
+                                stmt_table_rows.append({
+                                    "agg_digest": r.get("agg_digest", "-"),
+                                    "agg_schema_name": r.get("agg_schema_name", "-"),
+                                    "agg_plan_count": r.get("agg_plan_count", "-"),
+                                    "agg_exec_count": r.get("agg_exec_count", "-"),
+                                    "agg_sum_latency_s": round(_latency_to_seconds(r.get("agg_sum_latency")), 3),
+                                    "agg_max_latency_s": round(_latency_to_seconds(r.get("agg_max_latency")), 3),
+                                    "agg_avg_latency_s": round(_latency_to_seconds(r.get("agg_avg_latency")), 3),
+                                })
+                        stmt_md = rows_to_markdown(
+                            stmt_table_rows,
+                            [
+                                "agg_digest",
+                                "agg_schema_name",
+                                "agg_plan_count",
+                                "agg_exec_count",
+                                "agg_sum_latency_s",
+                                "agg_max_latency_s",
+                                "agg_avg_latency_s",
+                            ],
+                        )
+                        stmt_reco = ""
+                        if stmt_rows:
+                            top_stmt = stmt_rows[0] if isinstance(stmt_rows[0], dict) else {}
+                            try:
+                                plan_count = int((top_stmt or {}).get("agg_plan_count") or 0)
+                            except (TypeError, ValueError):
+                                plan_count = 0
+                            max_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_max_latency"))
+                            avg_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_avg_latency"))
+                            if plan_count >= 5 and (max_latency_s >= 1.0 or avg_latency_s >= 0.5):
+                                stmt_reco = (
+                                    "Recommendation:\n"
+                                    "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
+                                )
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
+                            "Query summary (statement history):\n\n"
+                            f"```sql\n{statement_sql}\n```\n\n"
+                            "Statement summary (by digest):\n\n"
+                            f"{stmt_md}\n\n"
+                            f"{stmt_reco}"
                             "Impacted tables:\n\n"
                             f"{tables_md}"
                         )
