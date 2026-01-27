@@ -956,7 +956,15 @@ class ChatFlow:
                 )
                 query_output_md = rows_to_markdown(
                     raw_rows,
-                    ["Time", "INSTANCE", "query_time", "query", "rocksdb_key_skipped_count"],
+                    [
+                        "Time",
+                        "INSTANCE",
+                        "query_time",
+                        "digest",
+                        "plan_digest",
+                        "query",
+                        "rocksdb_key_skipped_count",
+                    ],
                 )
                 response_text = (
                     "Slow query summary (high-level):\n\n"
@@ -965,7 +973,7 @@ class ChatFlow:
                     f"{recommendations_text}\n\n"
                     "Query used:\n\n"
                     f"{sql_used}\n\n"
-                    "Query output (raw rows):\n\n"
+                    "Query output (by row):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
