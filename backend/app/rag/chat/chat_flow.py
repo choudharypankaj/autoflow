@@ -965,7 +965,7 @@ class ChatFlow:
                     f"{recommendations_text}\n\n"
                     "Query used:\n\n"
                     f"{sql_used}\n\n"
-                    "Query output:\n\n"
+                    "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
