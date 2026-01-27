@@ -398,15 +398,7 @@ class ChatFlow:
                         chunks.append("Instances (cached):\n\n" + _rows_to_markdown(instances, ["INSTANCE", "exec_count", "avg_s", "total_s"]))
                     if want_table and isinstance(tables, list):
                         chunks.append("Impacted tables (cached):\n\n" + _rows_to_markdown(tables, ["table", "exec_count", "total_s"]))
-                    if want_sample and isinstance(digests, list):
-                        samples = []
-                        for d in digests:
-                            if isinstance(d, dict):
-                                sample = str(d.get("sample_query") or "").strip()
-                                if sample:
-                                    samples.append(sample)
-                        if samples:
-                            chunks.append("Sample queries (cached):\n\n" + "\n".join(f"- {s}" for s in samples[:5]))
+                    # Sample queries removed per UI preference
                     if chunks:
                         text = "\n\n".join(chunks)
                         if len(text) > MAX_CHAT_RESULT_CHARS:
