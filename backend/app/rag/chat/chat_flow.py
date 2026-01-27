@@ -627,6 +627,11 @@ class ChatFlow:
                 r"\banalysis\b",
             ]
         )
+        # Default to summary for "collect slow queries" unless user asks for raw rows
+        if re.search(r"\bcollect\s+slow\s+queries?\b", user_question, flags=re.IGNORECASE) and not re.search(
+            r"\b(raw|rows|full|all)\b", user_question, flags=re.IGNORECASE
+        ):
+            summary_mode = True
 
         # Construct SQLs
 
@@ -949,6 +954,10 @@ class ChatFlow:
                     "ORDER BY rocksdb_key_skipped_count DESC "
                     "LIMIT 20;"
                 )
+                query_output_md = rows_to_markdown(
+                    raw_rows,
+                    ["Time", "INSTANCE", "query_time", "query", "rocksdb_key_skipped_count"],
+                )
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
@@ -956,6 +965,8 @@ class ChatFlow:
                     f"{recommendations_text}\n\n"
                     "Query used:\n\n"
                     f"{sql_used}\n\n"
+                    "Query output:\n\n"
+                    f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Impacted tables:\n\n"
