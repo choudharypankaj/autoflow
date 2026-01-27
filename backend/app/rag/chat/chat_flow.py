@@ -638,7 +638,7 @@ class ChatFlow:
         if summary_mode:
             # Run a single raw query and summarize in-app
             sql_rows = (
-                "select digest, plan_digest, INSTANCE, query_time, "
+                "select Time, digest, plan_digest, INSTANCE, query_time, "
                 "substring(query, 1, 2000) as query, "
                 "rocksdb_key_skipped_count "
                 "from information_schema.CLUSTER_SLOW_QUERY "
@@ -960,6 +960,13 @@ class ChatFlow:
                         formatted = dict(r)
                         if "query" in formatted:
                             formatted["query"] = str(formatted.get("query") or "")[:200]
+                        # Ensure stable columns for table rendering
+                        formatted.setdefault("Time", "-")
+                        formatted.setdefault("INSTANCE", "-")
+                        formatted.setdefault("query_time", "-")
+                        formatted.setdefault("digest", "-")
+                        formatted.setdefault("plan_digest", "-")
+                        formatted.setdefault("rocksdb_key_skipped_count", "-")
                         formatted_rows.append(formatted)
                 query_output_md = rows_to_markdown(
                     formatted_rows,
