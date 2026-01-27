@@ -2,7 +2,7 @@ import json
 import ast
 import re
 import logging
-from datetime import datetime, UTC, date, time
+from datetime import datetime, UTC, date, time, timedelta
 from typing import List, Optional, Generator, Tuple, Any
 from urllib.parse import urljoin
 from uuid import UUID
@@ -511,6 +511,17 @@ class ChatFlow:
         # Accept "YYYY-MM-DD HH:MM:SS"
         ts_pattern = r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})"
         matches = re.findall(ts_pattern, user_question)
+        # Also support "last 1 hour" or "last X hours"
+        if len(matches) < 2:
+            rel = re.search(r"\blast\s+(\d+)\s+hour(s)?\b", user_question, flags=re.IGNORECASE)
+            if rel:
+                hours = int(rel.group(1))
+                end_dt = datetime.now(UTC)
+                start_dt = end_dt - timedelta(hours=hours)
+                matches = [
+                    start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                ]
         if len(matches) < 2:
             # Default to cached summary unless user explicitly asks for a fresh run
             force_fresh = bool(re.search(r"\b(fresh|re[-\s]?run|new\s+window|do\s+not\s+use\s+last|ignore\s+summary)\b", user_question, flags=re.IGNORECASE))
