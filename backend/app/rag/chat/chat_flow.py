@@ -954,8 +954,15 @@ class ChatFlow:
                     "ORDER BY rocksdb_key_skipped_count DESC "
                     "LIMIT 20;"
                 )
+                formatted_rows = []
+                for r in raw_rows:
+                    if isinstance(r, dict):
+                        formatted = dict(r)
+                        if "query" in formatted:
+                            formatted["query"] = str(formatted.get("query") or "")[:200]
+                        formatted_rows.append(formatted)
                 query_output_md = rows_to_markdown(
-                    raw_rows,
+                    formatted_rows,
                     [
                         "Time",
                         "INSTANCE",
@@ -973,7 +980,7 @@ class ChatFlow:
                     f"{recommendations_text}\n\n"
                     "Query used:\n\n"
                     f"{sql_used}\n\n"
-                    "Query output (by row):\n\n"
+                    "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
