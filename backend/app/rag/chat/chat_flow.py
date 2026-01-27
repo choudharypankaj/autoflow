@@ -914,8 +914,6 @@ class ChatFlow:
                 summary_lines = [
                     f"Time window (UTC): {start_ts} to {end_ts}",
                     f"Host: {host_name or 'default'}",
-                    f"Top digest exec_count: {top_digest.get('exec_count', '(n/a)')}",
-                    f"Top digest max_s: {top_digest.get('max_s', '(n/a)')}"
                 ]
                 summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
