@@ -505,7 +505,9 @@ class ChatFlow:
             r"\brocksdb_key_skipped_count\b",
         ]
         if not any(re.search(p, user_question, flags=re.IGNORECASE) for p in trigger_patterns):
-            return None
+            # Allow analysis requests when a time window is provided
+            if not re.search(r"\b(analy(?:s|z)e|summary|slow)\b", user_question, flags=re.IGNORECASE):
+                return None
 
         # Extract two UTC timestamps
         # Accept "YYYY-MM-DD HH:MM:SS"
@@ -603,7 +605,7 @@ class ChatFlow:
         if not host_name:
             try:
                 m = re.search(
-                    r"\b(?:for|using|on)\s+([A-Za-z0-9._-]+)\s+(?:mcp|db|database)\b",
+                    r"\b(?:for|using|on)\s+([A-Za-z0-9._-]+)\s+(?:mcp|db|database|cluster)\b",
                     user_question,
                     flags=re.IGNORECASE,
                 )
