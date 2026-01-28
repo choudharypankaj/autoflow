@@ -982,6 +982,7 @@ class ChatFlow:
                         })
                 plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else ""
                 ai_recommendations_text = ""
+                ai_examples_json = ""
                 try:
                     examples = []
                     for r in raw_rows:
@@ -1006,15 +1007,16 @@ class ChatFlow:
                         if len(examples) >= 3:
                             break
                     if examples:
+                        ai_examples_json = json.dumps(examples, ensure_ascii=False)
                         prompt = RichPromptTemplate(
                             "You are a TiDB performance expert. Analyze the plan and query samples and "
                             "suggest concrete index or query changes. "
                             "Return 3-5 concise bullet points starting with '-'. "
-                            "Only output bullets, no extra prose.\n\n"
+                            "Only output bullets, no extra prose. Do not ask for more data.\n\n"
                             "Samples (JSON): {examples}\n"
                         )
                         ai_recommendations_text = str(
-                            self._fast_llm.predict(prompt, examples=json.dumps(examples, ensure_ascii=False))
+                            self._fast_llm.predict(prompt, examples=ai_examples_json)
                         ).strip()
                 except Exception as e:
                     logger.exception("AI recommendation generation failed: %s", e)
@@ -1175,6 +1177,8 @@ class ChatFlow:
                     f"{digest_md}\n\n"
                     "Impacted tables:\n\n"
                     f"{tables_md}\n\n"
+                    "AI inputs (query + plan JSON):\n\n"
+                    f"```json\n{ai_examples_json or '[]'}\n```\n\n"
                     "Recommendations:\n\n"
                     f"{recommendations_text}"
                 )
