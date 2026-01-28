@@ -999,7 +999,7 @@ class ChatFlow:
                             continue
                         query_text = str(r.get("query") or "").strip()
                         examples.append({
-                            "plan": plan_text[:800],
+                            "plan": plan_text,
                         })
                         if len(examples) >= 3:
                             break
