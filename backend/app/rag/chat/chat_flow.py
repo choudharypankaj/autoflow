@@ -659,6 +659,12 @@ class ChatFlow:
         ):
             summary_mode = True
 
+        # If user targets a cluster, force summary mode.
+        if re.search(r"\bcluster\b", user_question, flags=re.IGNORECASE) or (
+            host_name and "cluster" in host_name.lower()
+        ):
+            summary_mode = True
+
         # Construct SQLs
         def _build_statement_summary_query(start_time: str, end_time: str) -> str:
             return (
