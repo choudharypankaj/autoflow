@@ -427,6 +427,7 @@ class ChatFlow:
                             continue
                         digest = str(r.get("digest") or "")
                         plan_digest = r.get("plan_digest") or "-"
+                        plan_text = r.get("plan") or ""
                         q = r.get("query") or ""
                         inst = r.get("INSTANCE") or ""
                         qt = float(r.get("query_time") or 0.0)
@@ -438,6 +439,7 @@ class ChatFlow:
                                     "digest": digest,
                                     "sample_query": str(q)[:200],
                                     "plan_digest": plan_digest,
+                                    "plan": str(plan_text)[:800],
                                     "exec_count": 0,
                                     "avg_s": 0.0,
                                     "max_s": 0.0,
@@ -694,7 +696,7 @@ class ChatFlow:
         if summary_mode:
             # Run a single raw query and summarize in-app
             sql_rows = (
-                "select Time, digest, plan_digest, INSTANCE, query_time, "
+                "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
                 "substring(query, 1, 2000) as query, "
                 "rocksdb_key_skipped_count "
                 "from information_schema.CLUSTER_SLOW_QUERY "
@@ -705,7 +707,7 @@ class ChatFlow:
             )
         else:
             sql = (
-                "select Time, INSTANCE, query_time, digest, plan_digest, "
+                "select Time, INSTANCE, query_time, digest, plan_digest, plan, "
                 "substring(query, 1, 2000) as query, "
                 "rocksdb_key_skipped_count "
                 "from information_schema.CLUSTER_SLOW_QUERY "
