@@ -954,6 +954,75 @@ class ChatFlow:
                 )
                 # Impacted tables derived from digest sample_query
                 tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
+                # Plan analysis for high rocksdb_key_skipped_count digests
+                plan_sections: list[str] = []
+                plan_recos: list[dict] = []
+                for r in raw_rows[:10]:
+                    if not isinstance(r, dict):
+                        continue
+                    try:
+                        skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
+                    except (TypeError, ValueError):
+                        skipped = 0.0
+                    if skipped <= 0:
+                        continue
+                    plan_text = str(r.get("plan") or "").strip()
+                    if not plan_text:
+                        continue
+                    digest = str(r.get("digest") or "-")
+                    plan_sections.append(
+                        "Plan (high rocksdb_key_skipped_count):\n\n"
+                        f"- digest: {digest}\n"
+                        f"- plan: {plan_text}"
+                    )
+                    if "TableFullScan" in plan_text:
+                        plan_recos.append({
+                            "score": 2,
+                            "text": "Plan shows TableFullScan; add/selective indexes or narrow predicates to avoid full scans.",
+                        })
+                    if "IndexFullScan" in plan_text:
+                        plan_recos.append({
+                            "score": 2,
+                            "text": "Plan shows IndexFullScan; consider more selective indexes or range predicates.",
+                        })
+                plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else "(no plan analysis available)"
+                ai_recommendations_text = ""
+                try:
+                    examples = []
+                    for r in raw_rows:
+                        if not isinstance(r, dict):
+                            continue
+                        try:
+                            skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
+                        except (TypeError, ValueError):
+                            skipped = 0.0
+                        if skipped <= 0:
+                            continue
+                        plan_text = str(r.get("plan") or "").strip()
+                        if not plan_text:
+                            continue
+                        query_text = str(r.get("query") or "").strip()
+                        examples.append({
+                            "digest": str(r.get("digest") or ""),
+                            "query": query_text[:400],
+                            "plan": plan_text[:800],
+                            "rocksdb_key_skipped_count": skipped,
+                        })
+                        if len(examples) >= 3:
+                            break
+                    if examples:
+                        prompt = RichPromptTemplate(
+                            "You are a TiDB performance expert. Analyze the plan and query samples and "
+                            "suggest concrete index or query changes. "
+                            "Return 3-5 concise bullet points starting with '-'. "
+                            "Only output bullets, no extra prose.\n\n"
+                            "Samples (JSON): {examples}\n"
+                        )
+                        ai_recommendations_text = str(
+                            self._fast_llm.predict(prompt, examples=json.dumps(examples, ensure_ascii=False))
+                        ).strip()
+                except Exception as e:
+                    logger.exception("AI recommendation generation failed: %s", e)
                 # Cache compact meta for follow-ups
                 self._cached_slow_query_meta = _json_safe({
                     "type": "slow_query_summary",
@@ -990,8 +1059,12 @@ class ChatFlow:
 
                 stmt_table_rows = []
                 for r in stmt_rows[:10]:
+                    schema_name = str(r.get("agg_schema_name") or "")
+                    digest_text = r.get("agg_digest_text", "-")
+                    if schema_name.lower() == "information_schema":
+                        digest_text = "-"
                     stmt_table_rows.append({
-                        "agg_digest_text": r.get("agg_digest_text", "-"),
+                        "agg_digest_text": digest_text,
                         "agg_schema_name": r.get("agg_schema_name", "-"),
                         "agg_plan_count": r.get("agg_plan_count", "-"),
                         "agg_exec_count": r.get("agg_exec_count", "-"),
@@ -1034,6 +1107,9 @@ class ChatFlow:
                     ]
                     recommendations = [r for r in rules if r["score"] > 0]
                     recommendations.sort(key=lambda r: r["score"], reverse=True)
+                if plan_recos:
+                    recommendations.extend(plan_recos)
+                    recommendations.sort(key=lambda r: r.get("score", 0), reverse=True)
                 if stmt_rows:
                     top_stmt = stmt_rows[0]
                     try:
@@ -1058,6 +1134,10 @@ class ChatFlow:
                     recommendations_text = "- No obvious hotspots detected; consider widening the time window."
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
+                if ai_recommendations_text:
+                    recommendations_text = (
+                        f"{recommendations_text}\n\nAI recommendations:\n{ai_recommendations_text}"
+                    )
 
                 formatted_rows = []
                 for r in raw_rows:
@@ -1092,6 +1172,8 @@ class ChatFlow:
                     f"```sql\n{statement_sql}\n```\n\n"
                     "Statement summary (by digest):\n\n"
                     f"{stmt_md}\n\n"
+                    "Plan analysis (high rocksdb_key_skipped_count):\n\n"
+                    f"{plan_analysis_text}\n\n"
                     "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
@@ -1209,8 +1291,12 @@ class ChatFlow:
                         stmt_table_rows = []
                         for r in stmt_rows[:10]:
                             if isinstance(r, dict):
+                                schema_name = str(r.get("agg_schema_name") or "")
+                                digest_text = r.get("agg_digest_text", "-")
+                                if schema_name.lower() == "information_schema":
+                                    digest_text = "-"
                                 stmt_table_rows.append({
-                                    "agg_digest_text": r.get("agg_digest_text", "-"),
+                                    "agg_digest_text": digest_text,
                                     "agg_schema_name": r.get("agg_schema_name", "-"),
                                     "agg_plan_count": r.get("agg_plan_count", "-"),
                                     "agg_exec_count": r.get("agg_exec_count", "-"),
@@ -1295,8 +1381,12 @@ class ChatFlow:
                         stmt_table_rows = []
                         for r in stmt_rows[:10]:
                             if isinstance(r, dict):
+                                schema_name = str(r.get("agg_schema_name") or "")
+                                digest_text = r.get("agg_digest_text", "-")
+                                if schema_name.lower() == "information_schema":
+                                    digest_text = "-"
                                 stmt_table_rows.append({
-                                    "agg_digest_text": r.get("agg_digest_text", "-"),
+                                    "agg_digest_text": digest_text,
                                     "agg_schema_name": r.get("agg_schema_name", "-"),
                                     "agg_plan_count": r.get("agg_plan_count", "-"),
                                     "agg_exec_count": r.get("agg_exec_count", "-"),
