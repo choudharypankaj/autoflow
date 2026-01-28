@@ -1067,8 +1067,6 @@ class ChatFlow:
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
-                    "Recommendations:\n\n"
-                    f"{recommendations_text}\n\n"
                     "Query summary (statement history):\n\n"
                     f"```sql\n{statement_sql}\n```\n\n"
                     "Statement summary (by digest):\n\n"
@@ -1078,7 +1076,9 @@ class ChatFlow:
                     "Slow query summary (by digest):\n\n"
                     f"{digest_md}\n\n"
                     "Impacted tables:\n\n"
-                    f"{tables_md}"
+                    f"{tables_md}\n\n"
+                    "Recommendations:\n\n"
+                    f"{recommendations_text}"
                 )
                 if len(response_text) > MAX_CHAT_RESULT_CHARS:
                     response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
@@ -1230,9 +1230,9 @@ class ChatFlow:
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
                             f"{stmt_md}\n\n"
-                            f"{stmt_reco}"
                             "Impacted tables:\n\n"
-                            f"{tables_md}"
+                            f"{tables_md}\n\n"
+                            f"{stmt_reco}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
@@ -1316,9 +1316,9 @@ class ChatFlow:
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
                             f"{stmt_md}\n\n"
-                            f"{stmt_reco}"
                             "Impacted tables:\n\n"
-                            f"{tables_md}"
+                            f"{tables_md}\n\n"
+                            f"{stmt_reco}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
