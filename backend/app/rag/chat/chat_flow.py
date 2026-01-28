@@ -1007,9 +1007,10 @@ class ChatFlow:
                         plan_only = [{"plan": item.get("plan", "")} for item in examples if item.get("plan")]
                         ai_examples_json = json.dumps(plan_only, ensure_ascii=False)
                         logger.info(
-                            "AI recommendation input plan_count=%d plan_chars=%d",
+                            "AI recommendation input plan_count=%d plan_chars=%d plans=%s",
                             len(plan_only),
                             sum(len(item.get("plan") or "") for item in plan_only),
+                            plan_only,
                         )
                         prompt = RichPromptTemplate(
                             "You are a TiDB performance expert. Analyze the execution plans and "
