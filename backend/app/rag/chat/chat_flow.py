@@ -699,29 +699,16 @@ class ChatFlow:
                 return num / 1e3
             return num
 
-        if summary_mode:
-            # Run a single raw query and summarize in-app
-            sql_rows = (
-                "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
-                "substring(query, 1, 2000) as query, "
-                "rocksdb_key_skipped_count "
-                "from information_schema.CLUSTER_SLOW_QUERY "
-                "where is_internal = false "
-                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                "order by rocksdb_key_skipped_count desc "
-                "limit 20"
-            )
-        else:
-            sql = (
-                "select Time, INSTANCE, query_time, digest, plan_digest, plan, "
-                "substring(query, 1, 2000) as query, "
-                "rocksdb_key_skipped_count "
-                "from information_schema.CLUSTER_SLOW_QUERY "
-                "where is_internal = false "
-                f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
-                "order by rocksdb_key_skipped_count desc "
-                "limit 20"
-            )
+        sql_query = (
+            "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
+            "substring(query, 1, 2000) as query, "
+            "rocksdb_key_skipped_count "
+            "from information_schema.CLUSTER_SLOW_QUERY "
+            "where is_internal = false "
+            f"and Time BETWEEN '{start_ts}' AND '{end_ts}' "
+            "order by rocksdb_key_skipped_count desc "
+            "limit 20"
+        )
 
         # If the selected name corresponds to a managed agent (and not a WS host),
         # call the managed path directly to avoid WS URL validation errors.
@@ -748,9 +735,9 @@ class ChatFlow:
                 if result_rows is None:
                     if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
+                        result_rows = run_managed_mcp_db_query(host_name, sql_query)
                     else:
-                        result_rows = run_mcp_db_query(sql_rows, host_name=host_name)
+                        result_rows = run_mcp_db_query(sql_query, host_name=host_name)
 
                 # Render concise summary
                 def _coerce_text_payload(text: str) -> Any:
@@ -1176,6 +1163,8 @@ class ChatFlow:
                 response_text = (
                     "Slow query summary (high-level):\n\n"
                     f"{summary_text}\n\n"
+                    "Query (slow query rows):\n\n"
+                    f"```sql\n{sql_query}\n```\n\n"
                     "Query summary (statement history):\n\n"
                     f"```sql\n{statement_sql}\n```\n\n"
                     "Statement summary (by digest):\n\n"
@@ -1207,10 +1196,10 @@ class ChatFlow:
                     if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
                         # Directly use managed MCP
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        result = run_managed_mcp_db_query(host_name, sql)
+                        result = run_managed_mcp_db_query(host_name, sql_query)
                     else:
                         # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
-                        result = run_mcp_db_query(sql, host_name=host_name)
+                        result = run_mcp_db_query(sql_query, host_name=host_name)
                 # Best-effort formatting
                 logger.info("Slow query raw result type=%s", type(result).__name__)
                 parsed_result = _parse_mcp_text_result(result)
@@ -1286,7 +1275,7 @@ class ChatFlow:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
                     if summary_mode:
-                        result_rows = run_managed_mcp_db_query(host_name, sql_rows)
+                        result_rows = run_managed_mcp_db_query(host_name, sql_query)
                         raw_rows = _normalize_rows(result_rows)
                         digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
                         digest_md = rows_to_markdown(
@@ -1341,6 +1330,8 @@ class ChatFlow:
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
+                            "Query (slow query rows):\n\n"
+                            f"```sql\n{sql_query}\n```\n\n"
                             "Query summary (statement history):\n\n"
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
@@ -1353,7 +1344,7 @@ class ChatFlow:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                         return text
                     else:
-                        result = run_managed_mcp_db_query(host_name, sql)
+                        result = run_managed_mcp_db_query(host_name, sql_query)
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
                         response_text = f"{pretty}"
                         if len(response_text) > MAX_CHAT_RESULT_CHARS:
@@ -1376,7 +1367,7 @@ class ChatFlow:
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import to avoid overhead
                     if summary_mode:
-                        result_rows = run_managed_mcp_db_query(fallback_name, sql_rows)
+                        result_rows = run_managed_mcp_db_query(fallback_name, sql_query)
                         raw_rows = _normalize_rows(result_rows)
                         digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
                         digest_md = rows_to_markdown(
@@ -1431,6 +1422,8 @@ class ChatFlow:
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
+                            "Query (slow query rows):\n\n"
+                            f"```sql\n{sql_query}\n```\n\n"
                             "Query summary (statement history):\n\n"
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
@@ -1443,7 +1436,7 @@ class ChatFlow:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                         return text
                     else:
-                        result = run_managed_mcp_db_query(fallback_name, sql)
+                        result = run_managed_mcp_db_query(fallback_name, sql_query)
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
                         response_text = f"{pretty}"
                         if len(response_text) > MAX_CHAT_RESULT_CHARS:
