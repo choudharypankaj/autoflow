@@ -1023,7 +1023,7 @@ class ChatFlow:
                             "AI recommendation input plan_previews=%s",
                             plan_previews,
                         )
-                        prompt = RichPromptTemplate(
+                        prompt_text = (
                             "You are a TiDB performance expert. Analyze the execution plans "
                             "to suggest concrete index or query changes.\n"
                             "For each plan, output in this exact format:\n"
@@ -1033,15 +1033,12 @@ class ChatFlow:
                             "Details: <tables/columns/index names; if unknown say 'unknown'>\n"
                             "---\n"
                             "Do not ask for more data. Use only the provided plans.\n\n"
-                            "Plans (JSON): {examples}\n"
+                            f"Plans (JSON): {ai_examples_json}\n"
                         )
-                        logger.info("AI recommendation prompt=%s", prompt.template_str)
-                        logger.info(
-                            "AI recommendation plans_json=\n%s",
-                            json.dumps(plan_only, ensure_ascii=False, indent=2),
-                        )
+                        prompt = RichPromptTemplate(prompt_text)
+                        logger.info("AI recommendation prompt=%s", prompt_text)
                         ai_recommendations_text = str(
-                            self._fast_llm.predict(prompt, examples=ai_examples_json)
+                            self._fast_llm.predict(prompt)
                         ).strip()
                         logger.info(
                             "AI recommendation response_len=%d response=%s",
@@ -1052,10 +1049,10 @@ class ChatFlow:
                             retry_prompt = RichPromptTemplate(
                                 "You have all required execution plans below. Do not ask for more data. "
                                 "Provide recommendations in the required format.\n\n"
-                                "Plans (JSON): {examples}\n"
+                                f"Plans (JSON): {ai_examples_json}\n"
                             )
                             ai_recommendations_text = str(
-                                self._fast_llm.predict(retry_prompt, examples=ai_examples_json)
+                                self._fast_llm.predict(retry_prompt)
                             ).strip()
                             logger.info(
                                 "AI recommendation retry_response_len=%d response=%s",
