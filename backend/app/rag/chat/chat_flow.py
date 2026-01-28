@@ -353,8 +353,16 @@ class ChatFlow:
             return None
 
         # 0) Follow-up meta-only path: if user references last/summary/digest/instance/table,
-        # try answering from the last assistant meta immediately.
-        if re.search(r"\b(last|previous|summary|summarize|digest|instance|table)\b", user_question, flags=re.IGNORECASE):
+        # try answering from the last assistant meta immediately, unless a time window is present.
+        has_relative_window = bool(re.search(
+            r"\blast\s+\d+\s+(?:min|mins|minute|minutes|hour|hours)\b",
+            user_question,
+            flags=re.IGNORECASE,
+        ))
+        if (
+            re.search(r"\b(last|previous|summary|summarize|digest|instance|table)\b", user_question, flags=re.IGNORECASE)
+            and not has_relative_window
+        ):
             try:
                 prior_messages = chat_repo.get_messages(self.db_session, self.db_chat_obj)
                 meta = None
@@ -510,6 +518,17 @@ class ChatFlow:
                 hours = int(rel.group(1))
                 end_dt = datetime.now(UTC)
                 start_dt = end_dt - timedelta(hours=hours)
+                matches = [
+                    start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                ]
+        # Also support "last X mins/minutes"
+        if len(matches) < 2:
+            rel = re.search(r"\blast\s+(\d+)\s+(?:min|mins|minute|minutes)\b", user_question, flags=re.IGNORECASE)
+            if rel:
+                minutes = int(rel.group(1))
+                end_dt = datetime.now(UTC)
+                start_dt = end_dt - timedelta(minutes=minutes)
                 matches = [
                     start_dt.strftime("%Y-%m-%d %H:%M:%S"),
                     end_dt.strftime("%Y-%m-%d %H:%M:%S"),
