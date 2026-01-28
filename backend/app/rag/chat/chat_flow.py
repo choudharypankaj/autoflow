@@ -989,7 +989,7 @@ class ChatFlow:
                 stmt_table_rows = []
                 for r in stmt_rows[:10]:
                     stmt_table_rows.append({
-                        "agg_digest": r.get("agg_digest", "-"),
+                        "agg_digest_text": r.get("agg_digest_text", "-"),
                         "agg_schema_name": r.get("agg_schema_name", "-"),
                         "agg_plan_count": r.get("agg_plan_count", "-"),
                         "agg_exec_count": r.get("agg_exec_count", "-"),
@@ -1000,7 +1000,7 @@ class ChatFlow:
                 stmt_md = rows_to_markdown(
                     stmt_table_rows,
                     [
-                        "agg_digest",
+                        "agg_digest_text",
                         "agg_schema_name",
                         "agg_plan_count",
                         "agg_exec_count",
@@ -1208,7 +1208,7 @@ class ChatFlow:
                         for r in stmt_rows[:10]:
                             if isinstance(r, dict):
                                 stmt_table_rows.append({
-                                    "agg_digest": r.get("agg_digest", "-"),
+                                    "agg_digest_text": r.get("agg_digest_text", "-"),
                                     "agg_schema_name": r.get("agg_schema_name", "-"),
                                     "agg_plan_count": r.get("agg_plan_count", "-"),
                                     "agg_exec_count": r.get("agg_exec_count", "-"),
@@ -1219,7 +1219,7 @@ class ChatFlow:
                         stmt_md = rows_to_markdown(
                             stmt_table_rows,
                             [
-                                "agg_digest",
+                                "agg_digest_text",
                                 "agg_schema_name",
                                 "agg_plan_count",
                                 "agg_exec_count",
@@ -1294,7 +1294,7 @@ class ChatFlow:
                         for r in stmt_rows[:10]:
                             if isinstance(r, dict):
                                 stmt_table_rows.append({
-                                    "agg_digest": r.get("agg_digest", "-"),
+                                    "agg_digest_text": r.get("agg_digest_text", "-"),
                                     "agg_schema_name": r.get("agg_schema_name", "-"),
                                     "agg_plan_count": r.get("agg_plan_count", "-"),
                                     "agg_exec_count": r.get("agg_exec_count", "-"),
@@ -1305,7 +1305,7 @@ class ChatFlow:
                         stmt_md = rows_to_markdown(
                             stmt_table_rows,
                             [
-                                "agg_digest",
+                                "agg_digest_text",
                                 "agg_schema_name",
                                 "agg_plan_count",
                                 "agg_exec_count",
