@@ -1021,6 +1021,8 @@ class ChatFlow:
                         ai_recommendations_text = str(
                             self._fast_llm.predict(prompt, examples=ai_examples_json)
                         ).strip()
+                        if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
+                            ai_recommendations_text = ""
                 except Exception as e:
                     logger.exception("AI recommendation generation failed: %s", e)
                 # Cache compact meta for follow-ups
