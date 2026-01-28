@@ -1012,6 +1012,13 @@ class ChatFlow:
                             sum(len(item.get("plan") or "") for item in plan_only),
                             plan_only,
                         )
+                        plan_previews = [
+                            (item.get("plan") or "").replace("\n", " ")[:200] for item in plan_only
+                        ]
+                        logger.info(
+                            "AI recommendation input plan_previews=%s",
+                            plan_previews,
+                        )
                         prompt = RichPromptTemplate(
                             "You are a TiDB performance expert. Analyze the execution plans and "
                             "suggest concrete index or query changes.\n"
