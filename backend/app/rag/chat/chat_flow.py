@@ -1154,6 +1154,11 @@ class ChatFlow:
                         f"{recommendations_text}\n\nAI recommendations:\n"
                         "- AI analysis unavailable; no execution plans were returned in CLUSTER_SLOW_QUERY for this window."
                     )
+                else:
+                    recommendations_text = (
+                        f"{recommendations_text}\n\nAI recommendations:\n"
+                        "- AI analysis unavailable; model did not return recommendations for the provided plans."
+                    )
 
                 formatted_rows = []
                 for r in raw_rows:
