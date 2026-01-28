@@ -1043,6 +1043,11 @@ class ChatFlow:
                         ai_recommendations_text = str(
                             self._fast_llm.predict(prompt, examples=ai_examples_json)
                         ).strip()
+                        logger.info(
+                            "AI recommendation response_len=%d response=%s",
+                            len(ai_recommendations_text),
+                            ai_recommendations_text,
+                        )
                         if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
                             retry_prompt = RichPromptTemplate(
                                 "You have all required execution plans below. Do not ask for more data. "
@@ -1052,9 +1057,15 @@ class ChatFlow:
                             ai_recommendations_text = str(
                                 self._fast_llm.predict(retry_prompt, examples=ai_examples_json)
                             ).strip()
+                            logger.info(
+                                "AI recommendation retry_response_len=%d response=%s",
+                                len(ai_recommendations_text),
+                                ai_recommendations_text,
+                            )
                         if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
                             ai_recommendations_text = ""
                 except Exception as e:
+                    logger.exception("AI recommendation error: %s", e)
                     logger.exception("AI recommendation generation failed: %s", e)
                 # Cache compact meta for follow-ups
                 self._cached_slow_query_meta = _json_safe({
