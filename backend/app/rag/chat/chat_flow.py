@@ -983,6 +983,7 @@ class ChatFlow:
                 plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else ""
                 ai_recommendations_text = ""
                 ai_examples_json = ""
+                ai_queries_text = ""
                 try:
                     examples = []
                     for r in raw_rows:
@@ -1007,12 +1008,20 @@ class ChatFlow:
                         if len(examples) >= 3:
                             break
                     if examples:
+                        ai_queries_text = "\n".join(
+                            f"- {str(item.get('query') or '').strip()}" for item in examples if item.get("query")
+                        )
                         ai_examples_json = json.dumps(examples, ensure_ascii=False)
                         prompt = RichPromptTemplate(
                             "You are a TiDB performance expert. Analyze the plan and query samples and "
-                            "suggest concrete index or query changes. "
-                            "Return 3-5 concise bullet points starting with '-'. "
-                            "Only output bullets, no extra prose. Do not ask for more data.\n\n"
+                            "suggest concrete index or query changes.\n"
+                            "For each sample, output in this exact format:\n"
+                            "Query: <original query>\n"
+                            "Recommendation: <specific action>\n"
+                            "Reason: <why needed>\n"
+                            "Details: <tables/columns/index names; if unknown say 'unknown'>\n"
+                            "---\n"
+                            "Do not ask for more data. Use only the provided samples.\n\n"
                             "Samples (JSON): {examples}\n"
                         )
                         ai_recommendations_text = str(
@@ -1132,8 +1141,11 @@ class ChatFlow:
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
                 if ai_recommendations_text:
+                    ai_queries_section = ""
+                    if ai_queries_text:
+                        ai_queries_section = f"AI queries:\n{ai_queries_text}\n\n"
                     recommendations_text = (
-                        f"{recommendations_text}\n\nAI recommendations:\n{ai_recommendations_text}"
+                        f"{recommendations_text}\n\n{ai_queries_section}AI recommendations:\n{ai_recommendations_text}"
                     )
 
                 formatted_rows = []
