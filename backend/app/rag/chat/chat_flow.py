@@ -1004,7 +1004,11 @@ class ChatFlow:
                         if len(examples) >= 3:
                             break
                     if examples:
-                        plan_only = [{"plan": item.get("plan", "")} for item in examples if item.get("plan")]
+                        plan_only = [
+                            {"plan": str(item.get("plan") or "")}
+                            for item in examples
+                            if item.get("plan")
+                        ]
                         ai_examples_json = json.dumps(plan_only, ensure_ascii=False)
                         logger.info(
                             "AI recommendation input plan_count=%d plan_chars=%d plans=%s",
@@ -1020,10 +1024,10 @@ class ChatFlow:
                             plan_previews,
                         )
                         prompt = RichPromptTemplate(
-                            "You are a TiDB performance expert. Analyze the execution plans and "
-                            "suggest concrete index or query changes.\n"
+                            "You are a TiDB performance expert. Analyze the execution plans "
+                            "to suggest concrete index or query changes.\n"
                             "For each plan, output in this exact format:\n"
-                            "Plan: <plan text>\n"
+                            "Plan: <short summary of plan>\n"
                             "Recommendation: <specific action>\n"
                             "Reason: <why needed>\n"
                             "Details: <tables/columns/index names; if unknown say 'unknown'>\n"
