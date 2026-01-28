@@ -1145,16 +1145,20 @@ class ChatFlow:
                     recommendations_text = "- No obvious hotspots detected; consider widening the time window."
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
+                ai_status_line = ""
                 if ai_recommendations_text:
+                    ai_status_line = "AI status: success"
                     recommendations_text = (
                         f"{recommendations_text}\n\nAI recommendations:\n{ai_recommendations_text}"
                     )
                 elif not ai_examples_json:
+                    ai_status_line = "AI status: no plans available"
                     recommendations_text = (
                         f"{recommendations_text}\n\nAI recommendations:\n"
                         "- AI analysis unavailable; no execution plans were returned in CLUSTER_SLOW_QUERY for this window."
                     )
                 else:
+                    ai_status_line = "AI status: failed to generate recommendations"
                     recommendations_text = (
                         f"{recommendations_text}\n\nAI recommendations:\n"
                         "- AI analysis unavailable; model did not return recommendations for the provided plans."
@@ -1203,6 +1207,7 @@ class ChatFlow:
                     f"{tables_md}\n\n"
                     "AI inputs (query + plan JSON):\n\n"
                     f"```json\n{ai_examples_json or '[]'}\n```\n\n"
+                    f"{ai_status_line}\n\n"
                     "Recommendations:\n\n"
                     f"{recommendations_text}"
                 )
