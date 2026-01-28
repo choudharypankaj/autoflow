@@ -1036,8 +1036,8 @@ class ChatFlow:
                             "Plans (JSON): {examples}\n"
                         )
                         logger.info(
-                            "AI recommendation prompt=%s",
-                            prompt.template_str,
+                            "AI recommendation prompt_filled=%s",
+                            prompt.template_str.replace("{examples}", ai_examples_json),
                         )
                         ai_recommendations_text = str(
                             self._fast_llm.predict(prompt, examples=ai_examples_json)
