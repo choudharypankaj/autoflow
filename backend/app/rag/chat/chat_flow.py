@@ -983,7 +983,6 @@ class ChatFlow:
                 plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else ""
                 ai_recommendations_text = ""
                 ai_examples_json = ""
-                ai_queries_text = ""
                 try:
                     examples = []
                     for r in raw_rows:
@@ -1000,29 +999,24 @@ class ChatFlow:
                             continue
                         query_text = str(r.get("query") or "").strip()
                         examples.append({
-                            "digest": str(r.get("digest") or ""),
-                            "query": query_text[:400],
                             "plan": plan_text[:800],
-                            "rocksdb_key_skipped_count": skipped,
                         })
                         if len(examples) >= 3:
                             break
                     if examples:
-                        ai_queries_text = "\n".join(
-                            f"- {str(item.get('query') or '').strip()}" for item in examples if item.get("query")
-                        )
-                        ai_examples_json = json.dumps(examples, ensure_ascii=False)
+                        plan_only = [{"plan": item.get("plan", "")} for item in examples]
+                        ai_examples_json = json.dumps(plan_only, ensure_ascii=False)
                         prompt = RichPromptTemplate(
-                            "You are a TiDB performance expert. Analyze the plan and query samples and "
+                            "You are a TiDB performance expert. Analyze the execution plans and "
                             "suggest concrete index or query changes.\n"
-                            "For each sample, output in this exact format:\n"
-                            "Query: <original query>\n"
+                            "For each plan, output in this exact format:\n"
+                            "Plan: <plan text>\n"
                             "Recommendation: <specific action>\n"
                             "Reason: <why needed>\n"
                             "Details: <tables/columns/index names; if unknown say 'unknown'>\n"
                             "---\n"
-                            "Do not ask for more data. Use only the provided samples.\n\n"
-                            "Samples (JSON): {examples}\n"
+                            "Do not ask for more data. Use only the provided plans.\n\n"
+                            "Plans (JSON): {examples}\n"
                         )
                         ai_recommendations_text = str(
                             self._fast_llm.predict(prompt, examples=ai_examples_json)
@@ -1141,11 +1135,8 @@ class ChatFlow:
                 else:
                     recommendations_text = "\n".join(f"- {r['text']}" for r in recommendations)
                 if ai_recommendations_text:
-                    ai_queries_section = ""
-                    if ai_queries_text:
-                        ai_queries_section = f"AI queries:\n{ai_queries_text}\n\n"
                     recommendations_text = (
-                        f"{recommendations_text}\n\n{ai_queries_section}AI recommendations:\n{ai_recommendations_text}"
+                        f"{recommendations_text}\n\nAI recommendations:\n{ai_recommendations_text}"
                     )
 
                 formatted_rows = []
