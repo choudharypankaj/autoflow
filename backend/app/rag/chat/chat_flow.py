@@ -1045,7 +1045,7 @@ class ChatFlow:
                             len(ai_recommendations_text),
                             ai_recommendations_text,
                         )
-                        if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
+                        if re.search(r"please\s+provide.*plans?|don't\s+see\s+any\s+actual\s+data", ai_recommendations_text, flags=re.IGNORECASE):
                             retry_prompt = RichPromptTemplate(
                                 "You have all required execution plans below. Do not ask for more data. "
                                 "Provide recommendations in the required format.\n\n"
@@ -1059,7 +1059,7 @@ class ChatFlow:
                                 len(ai_recommendations_text),
                                 ai_recommendations_text,
                             )
-                        if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
+                        if re.search(r"please\s+provide.*plans?|don't\s+see\s+any\s+actual\s+data", ai_recommendations_text, flags=re.IGNORECASE):
                             ai_recommendations_text = ""
                 except Exception as e:
                     logger.exception("AI recommendation error: %s", e)
