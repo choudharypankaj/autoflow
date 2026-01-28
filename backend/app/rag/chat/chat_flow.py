@@ -1022,7 +1022,14 @@ class ChatFlow:
                             self._fast_llm.predict(prompt, examples=ai_examples_json)
                         ).strip()
                         if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
-                            ai_recommendations_text = ""
+                            retry_prompt = RichPromptTemplate(
+                                "You have all required execution plans below. Do not ask for more data. "
+                                "Provide recommendations in the required format.\n\n"
+                                "Plans (JSON): {examples}\n"
+                            )
+                            ai_recommendations_text = str(
+                                self._fast_llm.predict(retry_prompt, examples=ai_examples_json)
+                            ).strip()
                 except Exception as e:
                     logger.exception("AI recommendation generation failed: %s", e)
                 # Cache compact meta for follow-ups
