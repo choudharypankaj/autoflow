@@ -1004,7 +1004,7 @@ class ChatFlow:
                         if len(examples) >= 3:
                             break
                     if examples:
-                        plan_only = [{"plan": item.get("plan", "")} for item in examples]
+                        plan_only = [{"plan": item.get("plan", "")} for item in examples if item.get("plan")]
                         ai_examples_json = json.dumps(plan_only, ensure_ascii=False)
                         prompt = RichPromptTemplate(
                             "You are a TiDB performance expert. Analyze the execution plans and "
@@ -1030,6 +1030,8 @@ class ChatFlow:
                             ai_recommendations_text = str(
                                 self._fast_llm.predict(retry_prompt, examples=ai_examples_json)
                             ).strip()
+                        if re.search(r"\bprovide\b.*\bplans?\b|\bexecution plans?\b", ai_recommendations_text, flags=re.IGNORECASE):
+                            ai_recommendations_text = ""
                 except Exception as e:
                     logger.exception("AI recommendation generation failed: %s", e)
                 # Cache compact meta for follow-ups
@@ -1146,6 +1148,11 @@ class ChatFlow:
                 if ai_recommendations_text:
                     recommendations_text = (
                         f"{recommendations_text}\n\nAI recommendations:\n{ai_recommendations_text}"
+                    )
+                elif not ai_examples_json:
+                    recommendations_text = (
+                        f"{recommendations_text}\n\nAI recommendations:\n"
+                        "- AI analysis unavailable; no execution plans were returned in CLUSTER_SLOW_QUERY for this window."
                     )
 
                 formatted_rows = []
