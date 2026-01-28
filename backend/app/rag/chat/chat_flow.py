@@ -980,7 +980,7 @@ class ChatFlow:
                             "score": 2,
                             "text": "Plan shows IndexFullScan; consider more selective indexes or range predicates.",
                         })
-                plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else "(no plan analysis available)"
+                plan_analysis_text = "\n\n".join(plan_sections) if plan_sections else ""
                 ai_recommendations_text = ""
                 try:
                     examples = []
@@ -1169,8 +1169,6 @@ class ChatFlow:
                     f"```sql\n{statement_sql}\n```\n\n"
                     "Statement summary (by digest):\n\n"
                     f"{stmt_md}\n\n"
-                    "Plan analysis (high rocksdb_key_skipped_count):\n\n"
-                    f"{plan_analysis_text}\n\n"
                     "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
