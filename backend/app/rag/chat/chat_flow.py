@@ -1017,7 +1017,7 @@ class ChatFlow:
                             plan_only,
                         )
                         plan_previews = [
-                            (item.get("plan") or "").replace("\n", " ")[:200] for item in plan_only
+                            (item.get("plan") or "") for item in plan_only
                         ]
                         logger.info(
                             "AI recommendation input plan_previews=%s",
