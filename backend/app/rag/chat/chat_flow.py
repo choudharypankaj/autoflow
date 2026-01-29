@@ -927,10 +927,28 @@ class ChatFlow:
                 },
             ]
 
+            ds_uid = str(getattr(SiteSetting, "mcp_grafana_datasource_uid", "") or "").strip()
+            ds_type = str(getattr(SiteSetting, "mcp_grafana_datasource_type", "") or "").strip() or "prometheus"
+            if ds_uid:
+                next_queries = []
+                for q in queries:
+                    if isinstance(q, dict) and "datasource" not in q:
+                        q = {**q, "datasource": {"uid": ds_uid, "type": ds_type}}
+                    next_queries.append(q)
+                queries = next_queries
+            logger.info(
+                "Grafana MCP query config datasource_uid=%s datasource_type=%s",
+                ds_uid or "<empty>",
+                ds_type,
+            )
+
             params = {
                 "from": start_ms,
                 "to": end_ms,
                 "queries": queries,
+                "intervalMs": 60000,
+                "maxDataPoints": 1000,
+                "range": {"from": start_ms, "to": end_ms},
             }
 
             try:

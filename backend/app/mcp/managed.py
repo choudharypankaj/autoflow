@@ -245,6 +245,25 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
 
     headers = {"Authorization": f"Bearer {api_key}"}
     if tool in {"grafana_query_range", "grafana_query"}:
+        queries = params.get("queries") if isinstance(params, dict) else None
+        if isinstance(queries, list):
+            has_datasource = any(isinstance(q, dict) and q.get("datasource") for q in queries)
+            if not has_datasource:
+                try:
+                    ds_resp = requests.get(grafana_url + "/api/datasources", headers=headers, timeout=10)
+                    if ds_resp.status_code < 400:
+                        ds_list = ds_resp.json() or []
+                        default_ds = next((d for d in ds_list if d.get("isDefault")), None) or (ds_list[0] if ds_list else None)
+                        if isinstance(default_ds, dict) and default_ds.get("uid"):
+                            ds_info = {"uid": default_ds.get("uid"), "type": default_ds.get("type", "prometheus")}
+                            params = dict(params)
+                            params["queries"] = [
+                                ({**q, "datasource": ds_info} if isinstance(q, dict) and "datasource" not in q else q)
+                                for q in queries
+                            ]
+                except Exception:
+                    pass
+    if tool in {"grafana_query_range", "grafana_query"}:
         resp = requests.post(
             grafana_url + "/api/ds/query",
             headers=headers,

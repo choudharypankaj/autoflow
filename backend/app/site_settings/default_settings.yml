@@ -161,3 +161,13 @@ mcp:
     data_type: list
     description: "Grafana MCP hosts. Items: { name, grafana_url, grafana_api_key, mcp_ws_url }"
     client: false
+  mcp_grafana_datasource_uid:
+    default: ""
+    data_type: str
+    description: "Grafana datasource UID used for MCP queries."
+    client: false
+  mcp_grafana_datasource_type:
+    default: "prometheus"
+    data_type: str
+    description: "Grafana datasource type for MCP queries."
+    client: false
