@@ -703,6 +703,7 @@ def maybe_run_db_slow_query(
     grafana_host_name = None
     db_host_name = host_name
     db_host_ready = False
+    default_mcp_ok = False
     try:
         SiteSetting.update_db_cache()
         grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
@@ -884,9 +885,10 @@ def maybe_run_db_slow_query(
                 "tables": tables_rows,
             })
             top_digest = digest_rows[0] if isinstance(digest_rows, list) and digest_rows else {}
+            display_host = db_host_name or ("default" if default_mcp_ok else "not configured")
             summary_lines = [
                 f"Time window (UTC): {start_ts} to {end_ts}",
-                f"Host: {db_host_name or ('not configured' if not db_host_ready else 'default')}",
+                f"Host: {display_host}",
             ]
             summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
