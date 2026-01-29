@@ -941,12 +941,6 @@ class ChatFlow:
             return digest_rows, instance_rows, tables_rows
 
         def _build_grafana_anomalies(start_time: str, end_time: str, grafana_host: str | None) -> str:
-            try:
-                start_ms = int(datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
-                end_ms = int(datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
-            except Exception:
-                return "Grafana anomalies (window):\n\n- Invalid time window for Grafana queries."
-
             SiteSetting.update_db_cache()
             grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
             grafana_name = grafana_host
@@ -960,123 +954,41 @@ class ChatFlow:
                 grafana_entry = grafana_hosts[0]
                 grafana_name = str((grafana_entry or {}).get("name", "")).strip() or None
             if not grafana_entry:
-                return "Grafana anomalies (window):\n\n- Grafana MCP host not configured."
+                return "Grafana dashboards:\n\n- Grafana MCP host not configured."
 
-            tool = str(getattr(SiteSetting, "mcp_grafana_tool", "") or "").strip() or "grafana_query_range"
-            queries = getattr(SiteSetting, "mcp_grafana_queries", None) or [
-                {
-                    "refId": "A",
-                    "expr": "histogram_quantile(0.999, sum(rate(tidb_server_handle_query_duration_seconds_bucket{k8s_cluster=\"$k8s_cluster\", tidb_cluster=\"$tidb_cluster\", instance=~\"$instance\"}[1m])) by (le))",
-                    "legend": "tidb_query_duration_p999",
-                },
-            ]
-
-            ds_uid = str(getattr(SiteSetting, "mcp_grafana_datasource_uid", "") or "").strip()
-            ds_type = str(getattr(SiteSetting, "mcp_grafana_datasource_type", "") or "").strip() or "prometheus"
-            vars_map = getattr(SiteSetting, "mcp_grafana_vars", None) or {}
-            defaults = {"k8s_cluster": ".*", "tidb_cluster": ".*", "instance": ".*"}
-            for key, val in defaults.items():
-                if key not in vars_map or not str(vars_map.get(key, "")).strip():
-                    vars_map[key] = val
-            def _apply_vars(expr: str) -> str:
-                out = expr
-                for k, v in vars_map.items():
-                    out = out.replace(f"${k}", str(v))
-                return out
-
-            if ds_uid:
-                next_queries = []
-                for q in queries:
-                    if isinstance(q, dict) and "datasource" not in q:
-                        q = {**q, "datasource": {"uid": ds_uid, "type": ds_type}}
-                    next_queries.append(q)
-                queries = next_queries
-            normalized_queries = []
-            for q in queries:
-                if not isinstance(q, dict):
-                    continue
-                expr = _apply_vars(str(q.get("expr", "")))
-                normalized_queries.append({
-                    **q,
-                    "expr": expr,
-                    "format": q.get("format", "time_series"),
-                    "interval": q.get("interval", "1m"),
-                    "intervalMs": q.get("intervalMs", 60000),
-                    "maxDataPoints": q.get("maxDataPoints", 1000),
-                })
-            queries = normalized_queries
-            logger.info(
-                "Grafana MCP query config datasource_uid=%s datasource_type=%s",
-                ds_uid or "<empty>",
-                ds_type,
-            )
-
-            params = {
-                "from": start_ms,
-                "to": end_ms,
-                "queries": queries,
-                "intervalMs": 60000,
-                "maxDataPoints": 1000,
-                "range": {"from": start_ms, "to": end_ms},
-            }
-
+            tool = "grafana_list_dashboards"
             try:
                 mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
                 if mcp_ws_url:
-                    result = run_mcp_tool_url(mcp_ws_url, tool, params)
+                    result = run_mcp_tool_url(mcp_ws_url, tool, {})
                 else:
-                    result = run_mcp_tool(tool, params, host_name=grafana_name)
+                    result = run_mcp_tool(tool, {}, host_name=grafana_name)
             except Exception as e:
                 logger.exception(
                     "Grafana MCP query failed: host=%s tool=%s params=%s",
                     grafana_name,
                     tool,
-                    params,
+                    {},
                 )
-                return f"Grafana anomalies (window):\n\n- Grafana query failed: {e}"
+                return f"Grafana dashboards:\n\n- Grafana list dashboards failed: {e}"
 
-            def _extract_series(payload: Any) -> list:
-                if isinstance(payload, dict):
-                    data = payload.get("data", payload)
-                    if isinstance(data, dict):
-                        series = data.get("result") or data.get("series")
-                        if isinstance(series, list):
-                            return series
-                if isinstance(payload, list):
-                    return payload
-                return []
+            dashboards = []
+            if isinstance(result, list):
+                dashboards = result
+            elif isinstance(result, dict):
+                dashboards = result.get("dashboards") or result.get("data") or []
+            if not dashboards:
+                return "Grafana dashboards:\n\n- No dashboards found."
 
-            def _series_values(series: dict) -> list[float]:
-                values = series.get("values") or series.get("datapoints") or []
-                out = []
-                for v in values:
-                    if isinstance(v, (list, tuple)) and len(v) >= 2:
-                        try:
-                            out.append(float(v[1]))
-                        except Exception:
-                            continue
-                return out
-
-            series_list = _extract_series(result)
-            anomalies = []
-            for s in series_list:
-                if not isinstance(s, dict):
-                    continue
-                values = _series_values(s)
-                if not values:
-                    continue
-                avg = sum(values) / len(values)
-                max_v = max(values)
-                metric = s.get("metric", {})
-                name = metric.get("__name__") or metric.get("metric") or s.get("name") or "metric"
-                if avg == 0 and max_v > 0:
-                    anomalies.append(f"- {name}: spike from 0 to {max_v:.3f}")
-                elif avg > 0 and max_v / avg >= 3:
-                    anomalies.append(f"- {name}: max {max_v:.3f} is {max_v / avg:.1f}x avg {avg:.3f}")
-
-            if not anomalies:
-                return "Grafana anomalies (window):\n\n- No obvious anomalies detected."
-            return "Grafana anomalies (window):\n\n" + "\n".join(anomalies)
+            rows = []
+            for d in dashboards[:20]:
+                if isinstance(d, dict):
+                    rows.append({
+                        "title": d.get("title", ""),
+                        "uid": d.get("uid", ""),
+                        "folder": d.get("folderTitle", ""),
+                    })
+            return "Grafana dashboards:\n\n" + rows_to_markdown(rows, ["title", "uid", "folder"])
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
             ai_recommendations_text = ""

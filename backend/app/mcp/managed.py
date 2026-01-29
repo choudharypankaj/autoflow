@@ -265,7 +265,14 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                 except Exception:
                     pass
         logger.info("Grafana MCP request params_resolved=%s", params)
-    if tool in {"grafana_query_range", "grafana_query"}:
+    if tool == "grafana_list_dashboards":
+        resp = requests.get(
+            grafana_url + "/api/search",
+            headers=headers,
+            params={"type": "dash-db"},
+            timeout=10,
+        )
+    elif tool in {"grafana_query_range", "grafana_query"}:
         queries = params.get("queries") if isinstance(params, dict) else None
         ds_uid = None
         if isinstance(queries, list):
