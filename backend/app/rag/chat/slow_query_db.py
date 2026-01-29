@@ -894,7 +894,7 @@ def maybe_run_db_slow_query(
             stmt_rows: list[dict] = []
             try:
                 if not db_host_ready:
-                    stmt_rows = []
+                    stmt_result = []
                 else:
                     if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
