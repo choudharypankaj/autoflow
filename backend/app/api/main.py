@@ -40,6 +40,8 @@ from app.api.admin_routes.mcp_sql import router as admin_mcp_sql_router
 from app.api.admin_routes.mcp_agents import router as admin_mcp_agents_router
 from app.api.admin_routes.mcp_hosts import router as admin_mcp_hosts_router
 from app.api.admin_routes.mcp_databases import router as admin_mcp_databases_router
+from app.api.admin_routes.mcp_grafana import router as admin_mcp_grafana_router
+from app.api.admin_routes.mcp_grafana_hosts import router as admin_mcp_grafana_hosts_router
 from app.api.routes.mcp import router as mcp_public_router
 from app.api.admin_routes import (
     chat_engine as admin_chat_engine,
@@ -107,6 +109,8 @@ api_router.include_router(admin_mcp_sql_router, tags=["admin/mcp"])
 api_router.include_router(admin_mcp_agents_router, tags=["admin/mcp"])
 api_router.include_router(admin_mcp_hosts_router, tags=["admin/mcp"])
 api_router.include_router(admin_mcp_databases_router, tags=["admin/mcp"])
+api_router.include_router(admin_mcp_grafana_router, tags=["admin/mcp"])
+api_router.include_router(admin_mcp_grafana_hosts_router, tags=["admin/mcp"])
 api_router.include_router(mcp_public_router, tags=["mcp"])
 
 api_router.include_router(

@@ -1,6 +1,7 @@
 import { getAllSiteSettings } from '@/api/site-settings';
-import { MCPSettings, ManagedMCPSettings } from '@/components/settings/IntegrationsSettings';
+import { GrafanaMCPSettings, MCPSettings, ManagedMCPSettings } from '@/components/settings/IntegrationsSettings';
 import { AdminPageHeading } from '@/components/admin-page-heading';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default async function AdminMcpHostsPage () {
   const settings = await getAllSiteSettings();
@@ -12,9 +13,20 @@ export default async function AdminMcpHostsPage () {
         ]}
       />
       <div className="max-w-screen-md">
-        <MCPSettings schema={settings} />
-        <div className="mt-10" />
-        <ManagedMCPSettings schema={settings} />
+        <Tabs defaultValue="database">
+          <TabsList>
+            <TabsTrigger value="database">Database</TabsTrigger>
+            <TabsTrigger value="grafana">Grafana</TabsTrigger>
+          </TabsList>
+          <TabsContent value="database">
+            <MCPSettings schema={settings} />
+            <div className="mt-10" />
+            <ManagedMCPSettings schema={settings} />
+          </TabsContent>
+          <TabsContent value="grafana">
+            <GrafanaMCPSettings schema={settings} />
+          </TabsContent>
+        </Tabs>
       </div>
     </>
   );

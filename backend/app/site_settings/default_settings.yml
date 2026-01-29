@@ -156,3 +156,8 @@ mcp:
     data_type: list
     description: "Managed MCP agents with TiDB credentials. Items: { name, tidb_host, tidb_port, tidb_username, tidb_password, tidb_database }"
     client: false
+  mcp_grafana_hosts:
+    default: []
+    data_type: list
+    description: "Grafana MCP hosts. Items: { name, grafana_url, grafana_api_key, mcp_ws_url }"
+    client: false
