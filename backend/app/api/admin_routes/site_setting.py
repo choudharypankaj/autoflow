@@ -2,6 +2,8 @@ import asyncio
 import os
 import sys
 from typing import Any, Dict, List
+
+import requests
 from pydantic import BaseModel
 from http import HTTPStatus
 from fastapi import APIRouter, HTTPException
@@ -167,6 +169,44 @@ def update_site_setting(
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Failed to validate managed MCP agent '{name}': {e}",
+                )
+
+    if setting_name == "mcp_grafana_hosts":
+        hosts = request.value or []
+        if not isinstance(hosts, list):
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="mcp_grafana_hosts must be a list of Grafana host configs",
+            )
+        for item in hosts:
+            name = str((item or {}).get("name", "")).strip() or "<unnamed>"
+            grafana_url = str((item or {}).get("grafana_url", "")).strip()
+            api_key = str((item or {}).get("grafana_api_key", "")).strip()
+            if not grafana_url or not api_key:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Grafana host '{name}' must include grafana_url and grafana_api_key",
+                )
+            if not (grafana_url.startswith("http://") or grafana_url.startswith("https://")):
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Grafana host '{name}' has invalid grafana_url: {grafana_url}",
+                )
+            try:
+                resp = requests.get(
+                    grafana_url.rstrip("/") + "/api/health",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=6,
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Failed to reach Grafana for '{name}': {e}",
+                )
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Grafana auth failed for '{name}': {resp.status_code} {resp.text}",
                 )
 
     try:
