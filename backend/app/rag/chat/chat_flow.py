@@ -38,7 +38,7 @@ from app.rag.utils import parse_goal_response_format
 from app.repositories import chat_repo
 from app.site_settings import SiteSetting
 from app.utils.tracing import LangfuseContextManager
-from app.mcp.client import run_mcp_db_query, run_mcp_tool
+from app.mcp.client import run_mcp_db_query, run_mcp_tool, run_mcp_tool_url
 
 logger = logging.getLogger(__name__)
 
@@ -709,9 +709,16 @@ class ChatFlow:
             SiteSetting.update_db_cache()
             grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
             grafana_name = grafana_host
-            if not grafana_name and grafana_hosts:
-                grafana_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
-            if not grafana_name:
+            grafana_entry = None
+            if grafana_name:
+                for it in grafana_hosts:
+                    if str((it or {}).get("name", "")).strip().lower() == grafana_name.strip().lower():
+                        grafana_entry = it
+                        break
+            if not grafana_entry and grafana_hosts:
+                grafana_entry = grafana_hosts[0]
+                grafana_name = str((grafana_entry or {}).get("name", "")).strip() or None
+            if not grafana_entry:
                 return "Grafana anomalies (window):\n\n- Grafana MCP host not configured."
 
             tool = str(getattr(SiteSetting, "mcp_grafana_tool", "") or "").strip() or "grafana_query_range"
@@ -730,7 +737,11 @@ class ChatFlow:
             }
 
             try:
-                result = run_mcp_tool(tool, params, host_name=grafana_name)
+                mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
+                if mcp_ws_url:
+                    result = run_mcp_tool_url(mcp_ws_url, tool, params)
+                else:
+                    result = run_mcp_tool(tool, params, host_name=grafana_name)
             except Exception as e:
                 return f"Grafana anomalies (window):\n\n- Grafana query failed: {e}"
 

@@ -200,6 +200,17 @@ def run_mcp_tool(tool: str, params: Dict[str, Any], *, host_name: str | None = N
     return asyncio.run(_run_ws_tool(mcp_url, tool, params))
 
 
+def run_mcp_tool_url(mcp_url: str, tool: str, params: Dict[str, Any]) -> Any:
+    """
+    Run an MCP tool against a specific MCP URL (ws:// or wss://).
+    """
+    if not mcp_url:
+        raise MCPNotConfigured("mcp_url is required.")
+    if not (mcp_url.startswith("ws://") or mcp_url.startswith("wss://")):
+        raise ValueError("Only ws:// or wss:// MCP host URLs are supported.")
+    return asyncio.run(_run_ws_tool(mcp_url, tool, params))
+
+
 def run_mcp_db_query(sql: str, *, host_name: str | None = None) -> Any:
     """
     Convenience wrapper to call the TiDB MCP Server 'db_query' tool.
