@@ -181,3 +181,8 @@ mcp:
     data_type: str
     description: "Grafana dashboard UID used to list panels."
     client: false
+  mcp_grafana_duration_panel_id:
+    default: 80
+    data_type: int
+    description: "Grafana panel id for Duration graph."
+    client: false

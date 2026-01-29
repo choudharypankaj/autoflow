@@ -281,6 +281,76 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             headers=headers,
             timeout=10,
         )
+    elif tool == "grafana_panel_query_range":
+        if not isinstance(params, dict):
+            raise RuntimeError("Grafana panel query requires params")
+        uid = str(params.get("uid", "")).strip()
+        panel_id = int(params.get("panel_id") or 0)
+        start_ms = int(params.get("from") or 0)
+        end_ms = int(params.get("to") or 0)
+        interval_ms = int(params.get("intervalMs") or 60000)
+        vars_map = params.get("vars") if isinstance(params.get("vars"), dict) else {}
+        if not uid or not panel_id:
+            raise RuntimeError("Grafana panel query requires uid and panel_id")
+        dash_resp = requests.get(
+            grafana_url + f"/api/dashboards/uid/{uid}",
+            headers=headers,
+            timeout=10,
+        )
+        if dash_resp.status_code >= 400:
+            raise RuntimeError(f"Grafana dashboard fetch failed: {dash_resp.status_code} {dash_resp.text}")
+        dash = dash_resp.json() or {}
+        dashboard = dash.get("dashboard") or {}
+        panels = dashboard.get("panels") or []
+        panel = next((p for p in panels if isinstance(p, dict) and p.get("id") == panel_id), None)
+        if not panel:
+            raise RuntimeError(f"Grafana panel id {panel_id} not found")
+        targets = panel.get("targets") or []
+        if not isinstance(targets, list) or not targets:
+            raise RuntimeError("Grafana panel has no targets")
+        # Resolve datasource uid for each target
+        ds_info = None
+        ds_resp = requests.get(grafana_url + "/api/datasources", headers=headers, timeout=10)
+        if ds_resp.status_code < 400:
+            ds_list = ds_resp.json() or []
+            default_ds = next((d for d in ds_list if d.get("isDefault")), None) or (ds_list[0] if ds_list else None)
+            if isinstance(default_ds, dict) and default_ds.get("uid"):
+                ds_info = {"uid": default_ds.get("uid"), "type": default_ds.get("type", "prometheus")}
+        series = []
+        for t in targets:
+            if not isinstance(t, dict):
+                continue
+            expr = str(t.get("expr") or t.get("query") or "").strip()
+            if not expr:
+                continue
+            for k, v in (vars_map or {}).items():
+                expr = expr.replace(f"${k}", str(v))
+            ds_uid = None
+            if isinstance(t.get("datasource"), dict):
+                ds_uid = t["datasource"].get("uid")
+            ds_uid = ds_uid or (ds_info.get("uid") if ds_info else None)
+            if not ds_uid:
+                continue
+            step = max(1, int(interval_ms / 1000))
+            proxy_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid}/api/v1/query_range"
+            r = requests.get(
+                proxy_url,
+                headers=headers,
+                params={
+                    "query": expr,
+                    "start": start_ms / 1000,
+                    "end": end_ms / 1000,
+                    "step": step,
+                },
+                timeout=10,
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"Grafana query_range failed: {r.status_code} {r.text}")
+            try:
+                series.append(r.json())
+            except Exception:
+                series.append({"raw": r.text})
+        return {"panel": {"id": panel_id, "title": panel.get("title", "")}, "series": series}
     elif tool in {"grafana_query_range", "grafana_query"}:
         queries = params.get("queries") if isinstance(params, dict) else None
         ds_uid = None

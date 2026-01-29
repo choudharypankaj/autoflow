@@ -958,88 +958,64 @@ class ChatFlow:
 
             dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_dashboard_uid", "") or "").strip()
             if not dashboard_uid:
-                return "Grafana panels:\n\n- Grafana dashboard UID not configured."
+                return "Grafana Duration analysis:\n\n- Grafana dashboard UID not configured."
+            panel_id = int(getattr(SiteSetting, "mcp_grafana_duration_panel_id", 0) or 0)
+            if not panel_id:
+                return "Grafana Duration analysis:\n\n- Grafana Duration panel id not configured."
 
-            tool = "grafana_list_panels"
+            tool = "grafana_panel_query_range"
             try:
                 mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
                 if mcp_ws_url:
-                    result = run_mcp_tool_url(mcp_ws_url, tool, {"uid": dashboard_uid})
+                    result = run_mcp_tool_url(
+                        mcp_ws_url,
+                        tool,
+                        {"uid": dashboard_uid, "panel_id": panel_id, "from": start_ms, "to": end_ms, "intervalMs": 60000, "vars": getattr(SiteSetting, "mcp_grafana_vars", None) or {}},
+                    )
                 else:
-                    result = run_mcp_tool(tool, {"uid": dashboard_uid}, host_name=grafana_name)
+                    result = run_mcp_tool(
+                        tool,
+                        {"uid": dashboard_uid, "panel_id": panel_id, "from": start_ms, "to": end_ms, "intervalMs": 60000, "vars": getattr(SiteSetting, "mcp_grafana_vars", None) or {}},
+                        host_name=grafana_name,
+                    )
             except Exception as e:
                 logger.exception(
                     "Grafana MCP query failed: host=%s tool=%s params=%s",
                     grafana_name,
                     tool,
-                    {"uid": dashboard_uid},
+                    {"uid": dashboard_uid, "panel_id": panel_id},
                 )
-                return f"Grafana panels:\n\n- Grafana list panels failed: {e}"
+                return f"Grafana Duration analysis:\n\n- Grafana panel query failed: {e}"
 
-            dashboard = result.get("dashboard") if isinstance(result, dict) else None
-            panels = []
-            if isinstance(dashboard, dict):
-                panels = dashboard.get("panels") or []
-            if not panels:
-                return "Grafana panels:\n\n- No panels found."
+            series = result.get("series") if isinstance(result, dict) else None
+            if not isinstance(series, list) or not series:
+                return "Grafana Duration analysis:\n\n- No series data returned."
 
-            query_row = None
-            for p in panels:
-                if isinstance(p, dict):
-                    title = str(p.get("title", "") or "")
-                    if "query summary" in title.strip().lower() and p.get("type") == "row":
-                        query_row = p
-                        break
-            if not query_row:
-                return "Grafana panels:\n\n- Query Summary row not found."
-
-            child_panels = []
-            row_id = query_row.get("id")
-            # If row panel contains nested panels (collapsed), use those.
-            if isinstance(query_row.get("panels"), list):
-                child_panels = [p for p in query_row.get("panels") if isinstance(p, dict)]
-            else:
-                # Otherwise, infer panels by row linkage or grid position.
-                def _y(panel: dict) -> int:
-                    gp = panel.get("gridPos") or {}
-                    return int(gp.get("y") or 0)
-                sorted_panels = [p for p in panels if isinstance(p, dict)]
-                sorted_panels.sort(key=_y)
-                row_y = _y(query_row)
-                next_row_y = None
-                for p in sorted_panels:
-                    if p.get("type") == "row" and _y(p) > row_y:
-                        next_row_y = _y(p)
-                        break
-                for p in sorted_panels:
-                    if p.get("type") == "row":
-                        continue
-                    # Check explicit row linkage used by some Grafana versions.
-                    if row_id and (p.get("panelGroup") == row_id or p.get("rowId") == row_id):
-                        child_panels.append(p)
-                        continue
-                    py = _y(p)
-                    if py > row_y and (next_row_y is None or py < next_row_y):
-                        child_panels.append(p)
-
-            rows = []
-            for p in child_panels:
-                title = str(p.get("title", "") or "")
-                panel_id = p.get("id", "")
-                if not title and not panel_id:
-                    continue
-                rows.append({
-                    "title": title,
-                    "id": panel_id,
-                    "type": p.get("type", ""),
-                })
-            duration_rows = [
-                r for r in rows
-                if str(r.get("title", "")).strip().lower() == "duration" or str(r.get("id", "")) == "80"
-            ]
-            if not duration_rows:
-                return "Grafana panels (Query Summary):\n\n- Duration (id=80) panel not found."
-            return "Grafana panels (Query Summary):\n\n" + rows_to_markdown(duration_rows, ["title", "id", "type"])
+            values = []
+            for s in series:
+                if isinstance(s, dict):
+                    data = s.get("data") or s
+                    result_items = data.get("data", {}).get("result") if isinstance(data, dict) else None
+                    if isinstance(result_items, list):
+                        for item in result_items:
+                            vals = item.get("values") if isinstance(item, dict) else None
+                            if isinstance(vals, list):
+                                for v in vals:
+                                    if isinstance(v, (list, tuple)) and len(v) >= 2:
+                                        try:
+                                            values.append(float(v[1]))
+                                        except Exception:
+                                            continue
+            if not values:
+                return "Grafana Duration analysis:\n\n- No data points found."
+            avg = sum(values) / len(values)
+            max_v = max(values)
+            return (
+                "Grafana Duration analysis:\n\n"
+                f"- avg: {avg:.6f}\n"
+                f"- max: {max_v:.6f}\n"
+                f"- points: {len(values)}"
+            )
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
             ai_recommendations_text = ""
