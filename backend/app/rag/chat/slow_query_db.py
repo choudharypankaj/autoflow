@@ -763,6 +763,20 @@ def maybe_run_db_slow_query(
         db_host_ready = bool(db_host_name)
     if not grafana_host_name and grafana_hosts:
         grafana_host_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
+    display_host = db_host_name
+    if not display_host:
+        # Try to resolve default mcp_host to a configured DB host name.
+        if default_mcp_url.startswith("managed://"):
+            display_host = default_mcp_url[len("managed://") :].strip()
+        elif default_mcp_url:
+            for it in ws_hosts:
+                href = str((it or {}).get("href", "")).strip()
+                name = str((it or {}).get("text", "")).strip()
+                if href and name and href == default_mcp_url:
+                    display_host = name
+                    break
+    if not display_host and isinstance(managed_agents, list) and len(managed_agents) == 1:
+        display_host = str((managed_agents[0] or {}).get("name", "")).strip() or ""
 
     summary_mode = any(
         re.search(p, user_question, flags=re.IGNORECASE)
@@ -885,7 +899,7 @@ def maybe_run_db_slow_query(
                 "tables": tables_rows,
             })
             top_digest = digest_rows[0] if isinstance(digest_rows, list) and digest_rows else {}
-            display_host = db_host_name or ("default" if default_mcp_ok else "not configured")
+            display_host = display_host or ("default" if default_mcp_ok else "not configured")
             summary_lines = [
                 f"Time window (UTC): {start_ts} to {end_ts}",
                 f"Host: {display_host}",
