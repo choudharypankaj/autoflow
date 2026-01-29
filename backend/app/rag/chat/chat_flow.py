@@ -974,10 +974,16 @@ class ChatFlow:
             SiteSetting.update_db_cache()
             ws_list = getattr(SiteSetting, "mcp_hosts", None) or []
             managed_list = getattr(SiteSetting, "managed_mcp_agents", None) or []
+            grafana_list = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
             ws_names = {str((it or {}).get("text", "")).strip().lower() for it in ws_list if it}
             managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_list if it}
+            grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_list if it}
         except Exception:
-            ws_names, managed_names = set(), set()
+            ws_names, managed_names, grafana_names = set(), set(), set()
+
+        # Ensure DB queries never route to Grafana MCP hosts.
+        if host_name and host_name.lower() in grafana_names:
+            host_name = ""
 
         try:
             if summary_mode:
