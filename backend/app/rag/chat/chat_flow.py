@@ -810,6 +810,64 @@ class ChatFlow:
                     return [parsed]
             return []
 
+        def _build_summary_from_rows(raw_rows: list) -> tuple[list[dict], list[dict], list[dict]]:
+            digest_agg: dict[str, dict] = {}
+            instance_agg: dict[str, dict] = {}
+            for r in raw_rows:
+                if not isinstance(r, dict):
+                    continue
+                digest = str(r.get("digest") or "")
+                plan_digest = r.get("plan_digest") or "-"
+                q = r.get("query") or ""
+                inst = r.get("INSTANCE") or ""
+                qt = float(r.get("query_time") or 0.0)
+                skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
+                if digest:
+                    agg = digest_agg.setdefault(
+                        digest,
+                        {
+                            "digest": digest,
+                            "sample_query": str(q)[:200],
+                            "plan_digest": plan_digest,
+                            "plan": str(r.get("plan") or "")[:800],
+                            "exec_count": 0,
+                            "avg_s": 0.0,
+                            "max_s": 0.0,
+                            "skipped_sum": 0.0,
+                            "_sum_s": 0.0,
+                        },
+                    )
+                    agg["exec_count"] += 1
+                    agg["_sum_s"] += qt
+                    agg["max_s"] = max(agg["max_s"], qt)
+                    agg["skipped_sum"] += skipped
+                    agg["avg_s"] = round(agg["_sum_s"] / agg["exec_count"], 3)
+                if inst:
+                    inst_agg = instance_agg.setdefault(
+                        str(inst),
+                        {"INSTANCE": inst, "exec_count": 0, "avg_s": 0.0, "total_s": 0.0, "_sum_s": 0.0},
+                    )
+                    inst_agg["exec_count"] += 1
+                    inst_agg["_sum_s"] += qt
+                    inst_agg["total_s"] = round(inst_agg["_sum_s"], 3)
+                    inst_agg["avg_s"] = round(inst_agg["_sum_s"] / inst_agg["exec_count"], 3)
+            digest_rows = sorted(digest_agg.values(), key=lambda x: x["skipped_sum"], reverse=True)[:10]
+            instance_rows = sorted(instance_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+            tables_agg: dict[str, dict] = {}
+            for r in digest_rows:
+                if not isinstance(r, dict):
+                    continue
+                sample = r.get("sample_query") or ""
+                exec_count = float(r.get("exec_count") or 0)
+                avg_s = float(r.get("avg_s") or 0.0)
+                total_s = exec_count * avg_s
+                for t in _extract_tables_from_sql(str(sample)):
+                    agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
+                    agg["exec_count"] += int(exec_count)
+                    agg["total_s"] += total_s
+            tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
+            return digest_rows, instance_rows, tables_rows
+
         def _build_grafana_anomalies(start_time: str, end_time: str, grafana_host: str | None) -> str:
             try:
                 start_ms = int(datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
@@ -968,63 +1026,6 @@ class ChatFlow:
                             values = [_clean_cell(r)]
                         lines.append(" | ".join(values))
                     return "\n".join(lines)
-
-                def _build_summary_from_rows(raw_rows: list) -> tuple[list[dict], list[dict], list[dict]]:
-                    digest_agg: dict[str, dict] = {}
-                    instance_agg: dict[str, dict] = {}
-                    for r in raw_rows:
-                        if not isinstance(r, dict):
-                            continue
-                        digest = str(r.get("digest") or "")
-                        plan_digest = r.get("plan_digest") or "-"
-                        q = r.get("query") or ""
-                        inst = r.get("INSTANCE") or ""
-                        qt = float(r.get("query_time") or 0.0)
-                        skipped = float(r.get("rocksdb_key_skipped_count") or 0.0)
-                        if digest:
-                            agg = digest_agg.setdefault(
-                                digest,
-                                {
-                                    "digest": digest,
-                                    "sample_query": str(q)[:200],
-                                    "plan_digest": plan_digest,
-                                    "exec_count": 0,
-                                    "avg_s": 0.0,
-                                    "max_s": 0.0,
-                                    "skipped_sum": 0.0,
-                                    "_sum_s": 0.0,
-                                },
-                            )
-                            agg["exec_count"] += 1
-                            agg["_sum_s"] += qt
-                            agg["max_s"] = max(agg["max_s"], qt)
-                            agg["skipped_sum"] += skipped
-                            agg["avg_s"] = round(agg["_sum_s"] / agg["exec_count"], 3)
-                        if inst:
-                            inst_agg = instance_agg.setdefault(
-                                str(inst),
-                                {"INSTANCE": inst, "exec_count": 0, "avg_s": 0.0, "total_s": 0.0, "_sum_s": 0.0},
-                            )
-                            inst_agg["exec_count"] += 1
-                            inst_agg["_sum_s"] += qt
-                            inst_agg["total_s"] = round(inst_agg["_sum_s"], 3)
-                            inst_agg["avg_s"] = round(inst_agg["_sum_s"] / inst_agg["exec_count"], 3)
-                    digest_rows = sorted(digest_agg.values(), key=lambda x: x["skipped_sum"], reverse=True)[:10]
-                    instance_rows = sorted(instance_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
-                    tables_agg: dict[str, dict] = {}
-                    for r in digest_rows:
-                        if not isinstance(r, dict):
-                            continue
-                        sample = r.get("sample_query") or ""
-                        exec_count = float(r.get("exec_count") or 0)
-                        avg_s = float(r.get("avg_s") or 0.0)
-                        total_s = exec_count * avg_s
-                        for t in _extract_tables_from_sql(str(sample)):
-                            agg = tables_agg.setdefault(t, {"table": t, "exec_count": 0, "total_s": 0.0})
-                            agg["exec_count"] += int(exec_count)
-                            agg["total_s"] += total_s
-                    tables_rows = sorted(tables_agg.values(), key=lambda x: x["total_s"], reverse=True)[:10]
-                    return digest_rows, instance_rows, tables_rows
 
                 raw_rows = _normalize_rows(result_rows)
                 if not raw_rows and isinstance(getattr(self, "_cached_slow_query_meta", None), dict):
