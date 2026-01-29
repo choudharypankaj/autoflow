@@ -1350,6 +1350,17 @@ class ChatFlow:
                     f"{recommendations_text}"
                 )
                 if len(response_text) > MAX_CHAT_RESULT_CHARS:
+                    logger.info(
+                        "Slow query summary truncated len=%d max=%d sections_present=%s",
+                        len(response_text),
+                        MAX_CHAT_RESULT_CHARS,
+                        {
+                            "grafana": "Grafana anomalies (window)" in response_text,
+                            "ai_inputs": "AI inputs (query + plan JSON)" in response_text,
+                            "ai_status": "AI status:" in response_text,
+                            "recommendations": "Recommendations:" in response_text,
+                        },
+                    )
                     response_text = response_text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                 return response_text
             else:
