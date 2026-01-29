@@ -79,10 +79,17 @@ def build_grafana_duration_analysis(
     for s in series:
         if isinstance(s, dict):
             data = s.get("data") or s
-            result_items = data.get("data", {}).get("result") if isinstance(data, dict) else None
+            result_items = None
+            if isinstance(data, dict):
+                if isinstance(data.get("result"), list):
+                    result_items = data.get("result")
+                elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("result"), list):
+                    result_items = data["data"].get("result")
             if isinstance(result_items, list):
                 for item in result_items:
-                    vals = item.get("values") if isinstance(item, dict) else None
+                    if not isinstance(item, dict):
+                        continue
+                    vals = item.get("values")
                     if isinstance(vals, list):
                         for v in vals:
                             if isinstance(v, (list, tuple)) and len(v) >= 2:
@@ -90,6 +97,13 @@ def build_grafana_duration_analysis(
                                     values.append(float(v[1]))
                                 except Exception:
                                     continue
+                    else:
+                        single = item.get("value")
+                        if isinstance(single, (list, tuple)) and len(single) >= 2:
+                            try:
+                                values.append(float(single[1]))
+                            except Exception:
+                                continue
     if not values:
         return "Grafana Duration analysis:\n\n- No data points found."
     avg = sum(values) / len(values)
