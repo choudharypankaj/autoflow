@@ -286,11 +286,12 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             raise RuntimeError("Grafana panel query requires params")
         uid = str(params.get("uid", "")).strip()
         panel_id = int(params.get("panel_id") or 0)
+        panel_title = str(params.get("panel_title") or "").strip().lower()
         start_ms = int(params.get("from") or 0)
         end_ms = int(params.get("to") or 0)
         interval_ms = int(params.get("intervalMs") or 60000)
         vars_map = params.get("vars") if isinstance(params.get("vars"), dict) else {}
-        if not uid or not panel_id:
+        if not uid or (not panel_id and not panel_title):
             raise RuntimeError("Grafana panel query requires uid and panel_id")
         dash_resp = requests.get(
             grafana_url + f"/api/dashboards/uid/{uid}",
@@ -302,9 +303,34 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         dash = dash_resp.json() or {}
         dashboard = dash.get("dashboard") or {}
         panels = dashboard.get("panels") or []
-        panel = next((p for p in panels if isinstance(p, dict) and p.get("id") == panel_id), None)
+        rows = dashboard.get("rows") or []
+
+        def _iter_panels(items):
+            for item in items or []:
+                if not isinstance(item, dict):
+                    continue
+                yield item
+                if item.get("type") == "row":
+                    for child in item.get("panels") or []:
+                        if isinstance(child, dict):
+                            yield child
+
+        flat_panels = list(_iter_panels(panels))
+        for row in rows:
+            if isinstance(row, dict):
+                flat_panels.extend([p for p in row.get("panels") or [] if isinstance(p, dict)])
+
+        panel = None
+        if panel_id:
+            panel = next((p for p in flat_panels if p.get("id") == panel_id), None)
+        if not panel and panel_title:
+            panel = next(
+                (p for p in flat_panels if str(p.get("title", "")).strip().lower() == panel_title),
+                None,
+            )
         if not panel:
-            raise RuntimeError(f"Grafana panel id {panel_id} not found")
+            missing = f"id {panel_id}" if panel_id else f"title '{panel_title}'"
+            raise RuntimeError(f"Grafana panel {missing} not found")
         targets = panel.get("targets") or []
         if not isinstance(targets, list) or not targets:
             raise RuntimeError("Grafana panel has no targets")
