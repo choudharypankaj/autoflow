@@ -986,12 +986,17 @@ class ChatFlow:
             rows = []
             for p in panels:
                 if isinstance(p, dict):
+                    title = str(p.get("title", "") or "")
+                    if title.strip().lower() != "query summary":
+                        continue
                     rows.append({
-                        "title": p.get("title", ""),
+                        "title": title,
                         "id": p.get("id", ""),
                         "type": p.get("type", ""),
                     })
-            return "Grafana panels:\n\n" + rows_to_markdown(rows, ["title", "id", "type"])
+            if not rows:
+                return "Grafana panels:\n\n- Query Summary panel not found."
+            return "Grafana panels (Query Summary):\n\n" + rows_to_markdown(rows, ["title", "id", "type"])
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
             ai_recommendations_text = ""
