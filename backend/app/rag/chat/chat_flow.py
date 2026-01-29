@@ -738,12 +738,10 @@ class ChatFlow:
 
             try:
                 mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
-                if not mcp_ws_url:
-                    return (
-                        "Grafana anomalies (window):\n\n"
-                        "- Grafana MCP host is missing mcp_ws_url; configure a ws:// or wss:// URL."
-                    )
-                result = run_mcp_tool_url(mcp_ws_url, tool, params)
+                if mcp_ws_url:
+                    result = run_mcp_tool_url(mcp_ws_url, tool, params)
+                else:
+                    result = run_mcp_tool(tool, params, host_name=grafana_name)
             except Exception as e:
                 return f"Grafana anomalies (window):\n\n- Grafana query failed: {e}"
 

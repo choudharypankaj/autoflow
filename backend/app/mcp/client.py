@@ -193,6 +193,15 @@ def run_mcp_tool(tool: str, params: Dict[str, Any], *, host_name: str | None = N
             return run_managed_mcp_db_query(agent_name, params.get("sql", ""))
         raise ValueError(f"Tool '{tool}' is not supported via managed MCP host")
 
+    # Support virtual managed Grafana hosts: managed-grafana://<name>
+    if mcp_url.startswith("managed-grafana://"):
+        grafana_name = mcp_url[len("managed-grafana://") :].strip()
+        if not grafana_name:
+            raise ValueError("Invalid managed Grafana MCP URL")
+        from app.mcp.managed import run_managed_mcp_grafana_tool  # local import
+
+        return run_managed_mcp_grafana_tool(grafana_name, tool, params)
+
     if not (mcp_url.startswith("ws://") or mcp_url.startswith("wss://")):
         raise ValueError("Only ws:// or wss:// MCP host URLs are supported.")
 

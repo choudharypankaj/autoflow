@@ -96,6 +96,8 @@ def create_grafana_host(
         if not (req.mcp_ws_url.startswith("ws://") or req.mcp_ws_url.startswith("wss://")):
             raise HTTPException(status_code=400, detail="mcp_ws_url must be ws:// or wss://")
         _upsert_mcp_host(session, req.name, req.mcp_ws_url)
+    else:
+        _upsert_mcp_host(session, req.name, f"managed-grafana://{req.name}")
     hosts = _get_grafana_hosts()
     updated: List[Dict[str, str]] = []
     found = False

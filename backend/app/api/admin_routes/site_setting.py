@@ -221,20 +221,20 @@ def update_site_setting(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Grafana auth failed for '{name}': {resp.status_code} {resp.text}",
                 )
-            if mcp_ws_url:
-                SiteSetting.update_db_cache()
-                mcp_hosts = getattr(SiteSetting, "mcp_hosts", None) or []
-                updated: List[Dict[str, str]] = []
-                found = False
-                for it in mcp_hosts:
-                    if str((it or {}).get("text", "")).strip().lower() == name.lower():
-                        updated.append({"text": name, "href": mcp_ws_url})
-                        found = True
-                    else:
-                        updated.append(it)
-                if not found:
-                    updated.append({"text": name, "href": mcp_ws_url})
-                SiteSetting.update_setting(session, "mcp_hosts", updated)
+            SiteSetting.update_db_cache()
+            mcp_hosts = getattr(SiteSetting, "mcp_hosts", None) or []
+            updated: List[Dict[str, str]] = []
+            found = False
+            href_value = mcp_ws_url or f"managed-grafana://{name}"
+            for it in mcp_hosts:
+                if str((it or {}).get("text", "")).strip().lower() == name.lower():
+                    updated.append({"text": name, "href": href_value})
+                    found = True
+                else:
+                    updated.append(it)
+            if not found:
+                updated.append({"text": name, "href": href_value})
+            SiteSetting.update_setting(session, "mcp_hosts", updated)
 
     try:
         SiteSetting.update_setting(session, setting_name, request.value)

@@ -10,6 +10,8 @@ import ast
 import re
 from typing import Any, Dict, Optional
 
+import requests
+
 from app.site_settings import SiteSetting
 from sqlmodel import Session, create_engine
 from app.core.config import settings
@@ -97,6 +99,15 @@ def _get_agent_config(name: str) -> Dict[str, Any]:
         if str(item.get("name", "")).lower() == name.lower():
             return item
     raise ManagedMCPAgentNotFound(f"Managed MCP agent '{name}' not found")
+
+
+def _get_grafana_config(name: str) -> Dict[str, Any]:
+    SiteSetting.update_db_cache()
+    hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
+    for item in hosts:
+        if str(item.get("name", "")).strip().lower() == name.lower():
+            return item
+    raise ManagedMCPAgentNotFound(f"Grafana MCP host '{name}' not found")
 
 
 def _resolve_db_credentials(agent: Dict[str, Any]) -> Dict[str, str]:
@@ -223,4 +234,30 @@ def run_managed_mcp_db_query(agent_name: str, sql: str) -> Any:
     env = {**creds, **os.environ}
 
     return asyncio.run(_run_stdio_tool(env, "db_query", {"sql": sql}))
+
+
+def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -> Any:
+    config = _get_grafana_config(name)
+    grafana_url = str(config.get("grafana_url", "")).strip().rstrip("/")
+    api_key = str(config.get("grafana_api_key", "")).strip()
+    if not grafana_url or not api_key:
+        raise RuntimeError("Grafana MCP host missing shown grafana_url or grafana_api_key")
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if tool in {"grafana_query_range", "grafana_query"}:
+        resp = requests.post(
+            grafana_url + "/api/ds/query",
+            headers=headers,
+            json=params,
+            timeout=10,
+        )
+    else:
+        raise RuntimeError(f"Grafana MCP tool '{tool}' not supported by managed host")
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Grafana API error: {resp.status_code} {resp.text}")
+    try:
+        return resp.json()
+    except Exception:
+        return resp.text
 
