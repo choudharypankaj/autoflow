@@ -315,8 +315,19 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             value = ""
             if isinstance(current, dict):
                 value = current.get("value") or current.get("text") or ""
+                if isinstance(value, (list, tuple)):
+                    value = "|".join(str(v) for v in value if v is not None)
             elif isinstance(current, str):
                 value = current
+            if not value:
+                options = item.get("options") or []
+                if isinstance(options, list):
+                    selected = [opt for opt in options if isinstance(opt, dict) and opt.get("selected")]
+                    if selected:
+                        selected_vals = []
+                        for opt in selected:
+                            selected_vals.append(opt.get("value") or opt.get("text") or "")
+                        value = "|".join(str(v) for v in selected_vals if v)
             if name and value:
                 default_vars[name] = value
         if default_vars and isinstance(vars_map, dict):
@@ -324,6 +335,8 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             for k, v in default_vars.items():
                 vars_map.setdefault(k, v)
             logger.info("Grafana panel vars resolved=%s", default_vars)
+        elif template_list:
+            logger.info("Grafana panel vars templating_list=%s", [t.get("name") for t in template_list if isinstance(t, dict)])
 
         def _iter_panels(items):
             for item in items or []:
@@ -371,6 +384,7 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                 continue
             for k, v in (vars_map or {}).items():
                 expr = expr.replace(f"${k}", str(v))
+                expr = expr.replace(f"${{{k}}}", str(v))
             ds_uid = None
             if isinstance(t.get("datasource"), dict):
                 ds_uid = t["datasource"].get("uid")
