@@ -266,12 +266,48 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                     pass
         logger.info("Grafana MCP request params_resolved=%s", params)
     if tool in {"grafana_query_range", "grafana_query"}:
-        resp = requests.post(
-            grafana_url + "/api/ds/query",
-            headers=headers,
-            json=params,
-            timeout=10,
-        )
+        queries = params.get("queries") if isinstance(params, dict) else None
+        ds_uid = None
+        if isinstance(queries, list):
+            for q in queries:
+                if isinstance(q, dict):
+                    ds = q.get("datasource") or {}
+                    ds_uid = ds.get("uid") or ds_uid
+                    break
+        # If we have a Prometheus datasource uid, use Grafana proxy to avoid ds/query schema issues.
+        if ds_uid:
+            expr = ""
+            if isinstance(queries, list) and queries and isinstance(queries[0], dict):
+                expr = str(queries[0].get("expr", "") or "")
+            interval_ms = 60000
+            if isinstance(params, dict):
+                interval_ms = int(params.get("intervalMs") or interval_ms)
+            start_ms = int(params.get("from") or 0)
+            end_ms = int(params.get("to") or 0)
+            if not start_ms or not end_ms:
+                if isinstance(params.get("range"), dict):
+                    start_ms = int(params["range"].get("from") or start_ms)
+                    end_ms = int(params["range"].get("to") or end_ms)
+            step = max(1, int(interval_ms / 1000))
+            proxy_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid}/api/v1/query_range"
+            resp = requests.get(
+                proxy_url,
+                headers=headers,
+                params={
+                    "query": expr,
+                    "start": start_ms / 1000,
+                    "end": end_ms / 1000,
+                    "step": step,
+                },
+                timeout=10,
+            )
+        else:
+            resp = requests.post(
+                grafana_url + "/api/ds/query",
+                headers=headers,
+                json=params,
+                timeout=10,
+            )
     else:
         raise RuntimeError(f"Grafana MCP tool '{tool}' not supported by managed host")
 
