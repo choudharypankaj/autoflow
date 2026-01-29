@@ -945,6 +945,12 @@ class ChatFlow:
                 else:
                     result = run_mcp_tool(tool, params, host_name=grafana_name)
             except Exception as e:
+                logger.exception(
+                    "Grafana MCP query failed: host=%s tool=%s params=%s",
+                    grafana_name,
+                    tool,
+                    params,
+                )
                 return f"Grafana anomalies (window):\n\n- Grafana query failed: {e}"
 
             def _extract_series(payload: Any) -> list:
