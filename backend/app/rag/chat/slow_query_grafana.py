@@ -56,7 +56,12 @@ def build_grafana_duration_analysis(
         if mcp_ws_url:
             result = run_mcp_tool_url(mcp_ws_url, tool, params)
         else:
-            result = run_mcp_tool(tool, params, host_name=grafana_name)
+            # Prefer managed Grafana runner when ws URL is not set.
+            try:
+                from app.mcp.managed import run_managed_mcp_grafana_tool  # local import
+                result = run_managed_mcp_grafana_tool(grafana_name, tool, params)
+            except Exception:
+                result = run_mcp_tool(tool, params, host_name=grafana_name)
     except Exception as e:
         logger.exception(
             "Grafana MCP query failed: host=%s tool=%s params=%s",
