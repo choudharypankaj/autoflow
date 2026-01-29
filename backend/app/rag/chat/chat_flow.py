@@ -1025,16 +1025,21 @@ class ChatFlow:
             rows = []
             for p in child_panels:
                 title = str(p.get("title", "") or "")
-                if not title:
+                panel_id = p.get("id", "")
+                if not title and not panel_id:
                     continue
                 rows.append({
                     "title": title,
-                    "id": p.get("id", ""),
+                    "id": panel_id,
                     "type": p.get("type", ""),
                 })
-            if not rows:
-                return "Grafana panels (Query Summary):\n\n- No panels found under Query Summary."
-            return "Grafana panels (Query Summary):\n\n" + rows_to_markdown(rows, ["title", "id", "type"])
+            duration_rows = [
+                r for r in rows
+                if str(r.get("title", "")).strip().lower() == "duration" or str(r.get("id", "")) == "80"
+            ]
+            if not duration_rows:
+                return "Grafana panels (Query Summary):\n\n- Duration (id=80) panel not found."
+            return "Grafana panels (Query Summary):\n\n" + rows_to_markdown(duration_rows, ["title", "id", "type"])
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
             ai_recommendations_text = ""
