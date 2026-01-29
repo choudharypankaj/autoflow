@@ -71,6 +71,27 @@ def build_grafana_duration_analysis(
         )
         return f"Grafana Duration analysis:\n\n- Grafana panel query failed: {e}"
 
+    if isinstance(result, dict):
+        logger.info(
+            "Grafana Duration panel meta host=%s uid=%s panel_id=%s title=%s",
+            grafana_name,
+            dashboard_uid,
+            panel_id,
+            result.get("panel", {}).get("title", ""),
+        )
+        if isinstance(result.get("series"), list):
+            for s in result.get("series", []):
+                try:
+                    if isinstance(s, dict):
+                        data = s.get("data") or s
+                        if isinstance(data, dict) and isinstance(data.get("data"), dict):
+                            # Prometheus responses include the query under data.data.result[*].metric / metadata
+                            logger.info(
+                                "Grafana Duration query result keys=%s",
+                                ",".join(sorted(data.get("data", {}).keys())),
+                            )
+                except Exception:
+                    continue
     series = result.get("series") if isinstance(result, dict) else None
     if not isinstance(series, list) or not series:
         return "Grafana Duration analysis:\n\n- No series data returned."

@@ -358,6 +358,15 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             if not ds_uid:
                 continue
             step = max(1, int(interval_ms / 1000))
+            logger.info(
+                "Grafana panel query_range expr=%s panel_id=%s ds_uid=%s start=%s end=%s step=%s",
+                expr,
+                panel_id,
+                ds_uid,
+                int(start_ms / 1000),
+                int(end_ms / 1000),
+                step,
+            )
             proxy_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid}/api/v1/query_range"
             r = requests.get(
                 proxy_url,
@@ -401,6 +410,14 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                     start_ms = int(params["range"].get("from") or start_ms)
                     end_ms = int(params["range"].get("to") or end_ms)
             step = max(1, int(interval_ms / 1000))
+            logger.info(
+                "Grafana query_range expr=%s ds_uid=%s start=%s end=%s step=%s",
+                expr,
+                ds_uid,
+                int(start_ms / 1000),
+                int(end_ms / 1000),
+                step,
+            )
             proxy_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid}/api/v1/query_range"
             resp = requests.get(
                 proxy_url,
