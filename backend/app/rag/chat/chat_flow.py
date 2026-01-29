@@ -1034,6 +1034,53 @@ class ChatFlow:
                 return "[]", "AI status: no plans available", "- AI analysis unavailable; no execution plans were returned in CLUSTER_SLOW_QUERY for this window."
             return ai_examples_json, "AI status: failed to generate recommendations", "- AI analysis unavailable; model did not return recommendations for the provided plans."
 
+        def _build_rule_recommendations(digest_rows: list, stmt_rows: list) -> str:
+            recommendations: list[dict] = []
+            top_digest = digest_rows[0] if isinstance(digest_rows, list) and digest_rows else {}
+            if isinstance(top_digest, dict):
+                max_s = float(top_digest.get("max_s") or 0.0)
+                skipped_sum = float(top_digest.get("skipped_sum") or 0.0)
+                exec_count = int(top_digest.get("exec_count") or 0)
+                rules = [
+                    {
+                        "score": 3 if max_s >= 2.0 else 2 if max_s >= 1.0 else 0,
+                        "text": "Investigate the slowest query; review execution plan and indexes.",
+                    },
+                    {
+                        "score": 3 if skipped_sum >= 50000 else 2 if skipped_sum >= 10000 else 0,
+                        "text": "High rocksdb_key_skipped_count; check for inefficient range scans or missing indexes.",
+                    },
+                    {
+                        "score": 2 if exec_count >= 100 else 1 if exec_count >= 50 else 0,
+                        "text": "High exec_count; consider caching, batching, or throttling repeated queries.",
+                    },
+                ]
+                recommendations = [r for r in rules if r["score"] > 0]
+                recommendations.sort(key=lambda r: r["score"], reverse=True)
+            if isinstance(stmt_rows, list) and stmt_rows:
+                top_stmt = stmt_rows[0] if isinstance(stmt_rows[0], dict) else {}
+                try:
+                    plan_count = int((top_stmt or {}).get("agg_plan_count") or 0)
+                except (TypeError, ValueError):
+                    plan_count = 0
+                max_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_max_latency"))
+                avg_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_avg_latency"))
+                sum_latency_s = _latency_to_seconds((top_stmt or {}).get("agg_sum_latency"))
+                if plan_count >= 5 and (max_latency_s >= 1.0 or avg_latency_s >= 0.5):
+                    recommendations.append({
+                        "score": 3,
+                        "text": "High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.",
+                    })
+                elif plan_count >= 5 and sum_latency_s > 0:
+                    recommendations.append({
+                        "score": 2,
+                        "text": "Multiple plans detected for this digest; check for plan cache instability and inconsistent parameter patterns.",
+                    })
+                recommendations.sort(key=lambda r: r.get("score", 0), reverse=True)
+            if not recommendations:
+                return "- No obvious hotspots detected; consider widening the time window."
+            return "\n".join(f"- {r['text']}" for r in recommendations)
+
         sql_query = (
             "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
             "substring(query, 1, 2000) as query, "
@@ -1558,6 +1605,7 @@ class ChatFlow:
                                 )
                         grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
                         ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
+                        recommendations_text = _build_rule_recommendations(digest_rows, stmt_rows)
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
@@ -1573,6 +1621,8 @@ class ChatFlow:
                             "AI inputs (query + plan JSON):\n\n"
                             f"```json\n{ai_examples_json}\n```\n\n"
                             f"{ai_status_line}\n\n"
+                            "Recommendations:\n\n"
+                            f"{recommendations_text}\n\n"
                             "AI recommendations:\n"
                             f"{ai_recommendations_text}\n\n"
                             f"{stmt_reco}"
@@ -1658,6 +1708,7 @@ class ChatFlow:
                                 )
                         grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
                         ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
+                        recommendations_text = _build_rule_recommendations(digest_rows, stmt_rows)
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
@@ -1673,6 +1724,8 @@ class ChatFlow:
                             "AI inputs (query + plan JSON):\n\n"
                             f"```json\n{ai_examples_json}\n```\n\n"
                             f"{ai_status_line}\n\n"
+                            "Recommendations:\n\n"
+                            f"{recommendations_text}\n\n"
                             "AI recommendations:\n"
                             f"{ai_recommendations_text}\n\n"
                             f"{stmt_reco}"
