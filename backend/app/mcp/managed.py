@@ -304,6 +304,26 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         dashboard = dash.get("dashboard") or {}
         panels = dashboard.get("panels") or []
         rows = dashboard.get("rows") or []
+        templating = dashboard.get("templating") or {}
+        template_list = templating.get("list") or []
+        default_vars = {}
+        for item in template_list:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            current = item.get("current") or {}
+            value = ""
+            if isinstance(current, dict):
+                value = current.get("value") or current.get("text") or ""
+            elif isinstance(current, str):
+                value = current
+            if name and value:
+                default_vars[name] = value
+        if default_vars and isinstance(vars_map, dict):
+            # Only fill missing vars to respect explicit overrides.
+            for k, v in default_vars.items():
+                vars_map.setdefault(k, v)
+            logger.info("Grafana panel vars resolved=%s", default_vars)
 
         def _iter_panels(items):
             for item in items or []:

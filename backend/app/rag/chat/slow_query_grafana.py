@@ -79,6 +79,7 @@ def build_grafana_duration_analysis(
             panel_id,
             result.get("panel", {}).get("title", ""),
         )
+        logger.info("Grafana Duration vars=%s", params.get("vars"))
         if isinstance(result.get("series"), list):
             for s in result.get("series", []):
                 try:
