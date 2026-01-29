@@ -20,8 +20,8 @@ COPY frontend/packages/widget-react/package.json ./frontend/packages/widget-reac
 
 WORKDIR /tidb.ai/frontend
 
-RUN npm install -g corepack@latest
-RUN corepack enable pnpm
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm install -g pnpm@9.15.0
 RUN pnpm i --frozen-lockfile
 
 
@@ -47,8 +47,8 @@ ENV SITE_URL=""
 RUN rm -f app/.env
 RUN echo BASE_URL=${BASE_URL:-'""'} >> app/.env.production
 
-RUN npm install -g corepack@latest
-RUN corepack enable pnpm
+RUN npm config set registry https://registry.npmmirror.com
+RUN npm install -g pnpm@9.15.0
 RUN pnpm run build:docker
 RUN pnpm run build:widget-react
 
