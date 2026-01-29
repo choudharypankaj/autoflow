@@ -38,7 +38,7 @@ from app.rag.utils import parse_goal_response_format
 from app.repositories import chat_repo
 from app.site_settings import SiteSetting
 from app.utils.tracing import LangfuseContextManager
-from app.mcp.client import run_mcp_db_query
+from app.mcp.client import run_mcp_db_query, run_mcp_tool
 
 logger = logging.getLogger(__name__)
 
@@ -699,6 +699,84 @@ class ChatFlow:
                 return num / 1e3
             return num
 
+        def _build_grafana_anomalies(start_time: str, end_time: str, grafana_host: str | None) -> str:
+            try:
+                start_ms = int(datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
+                end_ms = int(datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
+            except Exception:
+                return "Grafana anomalies (window):\n\n- Invalid time window for Grafana queries."
+
+            SiteSetting.update_db_cache()
+            grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
+            grafana_name = grafana_host
+            if not grafana_name and grafana_hosts:
+                grafana_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
+            if not grafana_name:
+                return "Grafana anomalies (window):\n\n- Grafana MCP host not configured."
+
+            tool = str(getattr(SiteSetting, "mcp_grafana_tool", "") or "").strip() or "grafana_query_range"
+            queries = getattr(SiteSetting, "mcp_grafana_queries", None) or [
+                {"refId": "A", "expr": "rate(container_cpu_cfs_throttled_seconds_total[5m])", "legend": "cpu_throttled"},
+                {"refId": "B", "expr": "rate(container_cpu_usage_seconds_total[5m])", "legend": "cpu_usage"},
+                {"refId": "C", "expr": "container_memory_working_set_bytes", "legend": "mem_working_set"},
+                {"refId": "D", "expr": "rate(node_disk_read_time_seconds_total[5m])", "legend": "disk_read_time"},
+                {"refId": "E", "expr": "rate(tikv_server_is_busy_total[5m])", "legend": "tikv_server_busy"},
+            ]
+
+            params = {
+                "from": start_ms,
+                "to": end_ms,
+                "queries": queries,
+            }
+
+            try:
+                result = run_mcp_tool(tool, params, host_name=grafana_name)
+            except Exception as e:
+                return f"Grafana anomalies (window):\n\n- Grafana query failed: {e}"
+
+            def _extract_series(payload: Any) -> list:
+                if isinstance(payload, dict):
+                    data = payload.get("data", payload)
+                    if isinstance(data, dict):
+                        series = data.get("result") or data.get("series")
+                        if isinstance(series, list):
+                            return series
+                if isinstance(payload, list):
+                    return payload
+                return []
+
+            def _series_values(series: dict) -> list[float]:
+                values = series.get("values") or series.get("datapoints") or []
+                out = []
+                for v in values:
+                    if isinstance(v, (list, tuple)) and len(v) >= 2:
+                        try:
+                            out.append(float(v[1]))
+                        except Exception:
+                            continue
+                return out
+
+            series_list = _extract_series(result)
+            anomalies = []
+            for s in series_list:
+                if not isinstance(s, dict):
+                    continue
+                values = _series_values(s)
+                if not values:
+                    continue
+                avg = sum(values) / len(values)
+                max_v = max(values)
+                metric = s.get("metric", {})
+                name = metric.get("__name__") or metric.get("metric") or s.get("name") or "metric"
+                if avg == 0 and max_v > 0:
+                    anomalies.append(f"- {name}: spike from 0 to {max_v:.3f}")
+                elif avg > 0 and max_v / avg >= 3:
+                    anomalies.append(f"- {name}: max {max_v:.3f} is {max_v / avg:.1f}x avg {avg:.3f}")
+
+            if not anomalies:
+                return "Grafana anomalies (window):\n\n- No obvious anomalies detected."
+            return "Grafana anomalies (window):\n\n" + "\n".join(anomalies)
+
         sql_query = (
             "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
             "substring(query, 1, 2000) as query, "
@@ -1126,6 +1204,8 @@ class ChatFlow:
                     ],
                 )
 
+                grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+
                 # Recommendations derived from weighted signals
                 recommendations: list[dict] = []
                 if isinstance(top_digest, dict):
@@ -1229,6 +1309,7 @@ class ChatFlow:
                     f"```sql\n{statement_sql}\n```\n\n"
                     "Statement summary (by digest):\n\n"
                     f"{stmt_md}\n\n"
+                    f"{grafana_text}\n\n"
                     "Query output (raw rows):\n\n"
                     f"{query_output_md}\n\n"
                     "Slow query summary (by digest):\n\n"
