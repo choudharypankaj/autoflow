@@ -35,7 +35,8 @@ def _save_grafana_hosts(session: SessionDep, hosts: List[Dict[str, str]]) -> Non
 def _verify_grafana(grafana_url: str, api_key: str) -> None:
     if not (grafana_url.startswith("http://") or grafana_url.startswith("https://")):
         raise HTTPException(status_code=400, detail="grafana_url must start with http:// or https://")
-    url = grafana_url.rstrip("/") + "/api/health"
+    base = grafana_url.rstrip("/")
+    url = base + "/api/user"
     try:
         resp = requests.get(
             url,
@@ -44,6 +45,12 @@ def _verify_grafana(grafana_url: str, api_key: str) -> None:
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to reach Grafana: {e}")
+    if resp.status_code == 404:
+        resp = requests.get(
+            base + "/api/org",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=6,
+        )
     if resp.status_code >= 400:
         raise HTTPException(status_code=400, detail=f"Grafana auth failed: {resp.status_code} {resp.text}")
 

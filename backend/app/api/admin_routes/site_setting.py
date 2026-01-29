@@ -192,9 +192,10 @@ def update_site_setting(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Grafana host '{name}' has invalid grafana_url: {grafana_url}",
                 )
+            base = grafana_url.rstrip("/")
             try:
                 resp = requests.get(
-                    grafana_url.rstrip("/") + "/api/health",
+                    base + "/api/user",
                     headers={"Authorization": f"Bearer {api_key}"},
                     timeout=6,
                 )
@@ -202,6 +203,12 @@ def update_site_setting(
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Failed to reach Grafana for '{name}': {e}",
+                )
+            if resp.status_code == 404:
+                resp = requests.get(
+                    base + "/api/org",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=6,
                 )
             if resp.status_code >= 400:
                 raise HTTPException(
