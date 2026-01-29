@@ -319,6 +319,10 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                     value = "|".join(str(v) for v in value if v is not None)
             elif isinstance(current, str):
                 value = current
+            if isinstance(value, str) and value == "$__all":
+                all_value = item.get("allValue") or ""
+                if all_value:
+                    value = all_value
             if not value:
                 options = item.get("options") or []
                 if isinstance(options, list):
@@ -337,6 +341,13 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             logger.info("Grafana panel vars resolved=%s", default_vars)
         elif template_list:
             logger.info("Grafana panel vars templating_list=%s", [t.get("name") for t in template_list if isinstance(t, dict)])
+        # Panel scoped vars can override defaults for repeated panels
+        scoped_vars = panel.get("scopedVars") if isinstance(panel, dict) else None
+        if isinstance(scoped_vars, dict) and isinstance(vars_map, dict):
+            for k, v in scoped_vars.items():
+                if isinstance(v, dict) and v.get("value") is not None:
+                    vars_map.setdefault(k, v.get("value"))
+            logger.info("Grafana panel scoped_vars=%s", list(scoped_vars.keys()))
 
         def _iter_panels(items):
             for item in items or []:
