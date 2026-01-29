@@ -973,6 +973,17 @@ class ChatFlow:
 
             ds_uid = str(getattr(SiteSetting, "mcp_grafana_datasource_uid", "") or "").strip()
             ds_type = str(getattr(SiteSetting, "mcp_grafana_datasource_type", "") or "").strip() or "prometheus"
+            vars_map = getattr(SiteSetting, "mcp_grafana_vars", None) or {}
+            defaults = {"k8s_cluster": ".*", "tidb_cluster": ".*", "instance": ".*"}
+            for key, val in defaults.items():
+                if key not in vars_map or not str(vars_map.get(key, "")).strip():
+                    vars_map[key] = val
+            def _apply_vars(expr: str) -> str:
+                out = expr
+                for k, v in vars_map.items():
+                    out = out.replace(f"${k}", str(v))
+                return out
+
             if ds_uid:
                 next_queries = []
                 for q in queries:
@@ -980,6 +991,20 @@ class ChatFlow:
                         q = {**q, "datasource": {"uid": ds_uid, "type": ds_type}}
                     next_queries.append(q)
                 queries = next_queries
+            normalized_queries = []
+            for q in queries:
+                if not isinstance(q, dict):
+                    continue
+                expr = _apply_vars(str(q.get("expr", "")))
+                normalized_queries.append({
+                    **q,
+                    "expr": expr,
+                    "format": q.get("format", "time_series"),
+                    "interval": q.get("interval", "1m"),
+                    "intervalMs": q.get("intervalMs", 60000),
+                    "maxDataPoints": q.get("maxDataPoints", 1000),
+                })
+            queries = normalized_queries
             logger.info(
                 "Grafana MCP query config datasource_uid=%s datasource_type=%s",
                 ds_uid or "<empty>",

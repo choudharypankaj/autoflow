@@ -171,3 +171,8 @@ mcp:
     data_type: str
     description: "Grafana datasource type for MCP queries."
     client: false
+  mcp_grafana_vars:
+    default: {}
+    data_type: dict
+    description: "Grafana template variables for MCP queries, e.g. {k8s_cluster: my-cluster, tidb_cluster: test, instance: .*}."
+    client: false
