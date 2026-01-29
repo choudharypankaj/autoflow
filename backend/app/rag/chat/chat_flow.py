@@ -699,6 +699,117 @@ class ChatFlow:
                 return num / 1e3
             return num
 
+        def _coerce_text_payload(text: str) -> Any:
+            # Handle repr-style wrapper: meta=None content=[TextContent(type='text', text='...')]
+            if "TextContent" in text and "text=" in text:
+                try:
+                    start = text.index("text=") + len("text=")
+                    snippet = text[start:].lstrip()
+                    if snippet and snippet[0] in ("'", '"'):
+                        quote = snippet[0]
+                        # Find matching quote respecting escapes
+                        i = 1
+                        escaped = False
+                        while i < len(snippet):
+                            ch = snippet[i]
+                            if escaped:
+                                escaped = False
+                            elif ch == "\\":
+                                escaped = True
+                            elif ch == quote:
+                                break
+                            i += 1
+                        raw_text = snippet[: i + 1]
+                        extracted = ast.literal_eval(raw_text)
+                        return _coerce_text_payload(str(extracted))
+                except Exception:
+                    pass
+            # Regex fallback for wrapper with escaped quotes/newlines
+            for pattern, wrap in [
+                (r"text='((?:\\'|[^'])*?)'", "'"),
+                (r'text="((?:\\"|[^"])*?)"', '"'),
+            ]:
+                match = re.search(pattern, text, flags=re.DOTALL)
+                if match:
+                    try:
+                        literal = f"{wrap}{match.group(1)}{wrap}"
+                        extracted = ast.literal_eval(literal)
+                        return _coerce_text_payload(str(extracted))
+                    except Exception:
+                        continue
+            # Generic wrapper cleanup: strip any leading metadata before JSON
+            if "meta=None content=" in text and "{" in text:
+                text = text[text.find("{") :]
+            try:
+                return json.loads(text)
+            except Exception:
+                pass
+            try:
+                return ast.literal_eval(text)
+            except Exception:
+                pass
+            # Try to extract JSON-like payload from within the text
+            for opener, closer in [("[", "]"), ("{", "}")]:
+                start = text.find(opener)
+                end = text.rfind(closer)
+                if start != -1 and end != -1 and end > start:
+                    chunk = text[start : end + 1]
+                    try:
+                        return json.loads(chunk)
+                    except Exception:
+                        try:
+                            return ast.literal_eval(chunk)
+                        except Exception:
+                            continue
+            return text
+
+        def _parse_mcp_text_result(result: Any) -> Any:
+            content = None
+            if isinstance(result, dict):
+                content = result.get("content")
+            else:
+                content = getattr(result, "content", None)
+            if not isinstance(content, list):
+                return result
+            parsed_items = []
+            for item in content:
+                text = None
+                if isinstance(item, dict):
+                    text = item.get("text")
+                else:
+                    text = getattr(item, "text", None)
+                if not text:
+                    continue
+                parsed = _coerce_text_payload(text)
+                logger.info("MCP text parsed type=%s", type(parsed).__name__)
+                parsed_items.append(parsed)
+            if len(parsed_items) == 1:
+                return parsed_items[0]
+            if parsed_items:
+                return parsed_items
+            return result
+
+        def _normalize_rows(result: Any) -> list:
+            parsed = _parse_mcp_text_result(result)
+            if isinstance(parsed, str):
+                parsed = _coerce_text_payload(parsed)
+            logger.info(
+                "MCP normalize_rows type=%s preview=%s",
+                type(parsed).__name__,
+                str(parsed)[:200].replace("\n", "\\n"),
+            )
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                for key in ("rows", "data", "result"):
+                    value = parsed.get(key)
+                    if isinstance(value, list):
+                        return value
+                # If a single row dict, wrap it
+                if any(k in parsed for k in ("digest", "sample_query", "INSTANCE", "Time", "query_time")):
+                    return [parsed]
+            return []
+
         def _build_grafana_anomalies(start_time: str, end_time: str, grafana_host: str | None) -> str:
             try:
                 start_ms = int(datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC).timestamp() * 1000)
@@ -829,116 +940,6 @@ class ChatFlow:
                         result_rows = run_mcp_db_query(sql_query, host_name=host_name)
 
                 # Render concise summary
-                def _coerce_text_payload(text: str) -> Any:
-                    # Handle repr-style wrapper: meta=None content=[TextContent(type='text', text='...')]
-                    if "TextContent" in text and "text=" in text:
-                        try:
-                            start = text.index("text=") + len("text=")
-                            snippet = text[start:].lstrip()
-                            if snippet and snippet[0] in ("'", '"'):
-                                quote = snippet[0]
-                                # Find matching quote respecting escapes
-                                i = 1
-                                escaped = False
-                                while i < len(snippet):
-                                    ch = snippet[i]
-                                    if escaped:
-                                        escaped = False
-                                    elif ch == "\\":
-                                        escaped = True
-                                    elif ch == quote:
-                                        break
-                                    i += 1
-                                raw_text = snippet[: i + 1]
-                                extracted = ast.literal_eval(raw_text)
-                                return _coerce_text_payload(str(extracted))
-                        except Exception:
-                            pass
-                    # Regex fallback for wrapper with escaped quotes/newlines
-                    for pattern, wrap in [
-                        (r"text='((?:\\'|[^'])*?)'", "'"),
-                        (r'text="((?:\\"|[^"])*?)"', '"'),
-                    ]:
-                        match = re.search(pattern, text, flags=re.DOTALL)
-                        if match:
-                            try:
-                                literal = f"{wrap}{match.group(1)}{wrap}"
-                                extracted = ast.literal_eval(literal)
-                                return _coerce_text_payload(str(extracted))
-                            except Exception:
-                                continue
-                    # Generic wrapper cleanup: strip any leading metadata before JSON
-                    if "meta=None content=" in text and "{" in text:
-                        text = text[text.find("{") :]
-                    try:
-                        return json.loads(text)
-                    except Exception:
-                        pass
-                    try:
-                        return ast.literal_eval(text)
-                    except Exception:
-                        pass
-                    # Try to extract JSON-like payload from within the text
-                    for opener, closer in [("[", "]"), ("{", "}")]:
-                        start = text.find(opener)
-                        end = text.rfind(closer)
-                        if start != -1 and end != -1 and end > start:
-                            chunk = text[start : end + 1]
-                            try:
-                                return json.loads(chunk)
-                            except Exception:
-                                try:
-                                    return ast.literal_eval(chunk)
-                                except Exception:
-                                    continue
-                    return text
-
-                def _parse_mcp_text_result(result: Any) -> Any:
-                    content = None
-                    if isinstance(result, dict):
-                        content = result.get("content")
-                    else:
-                        content = getattr(result, "content", None)
-                    if not isinstance(content, list):
-                        return result
-                    parsed_items = []
-                    for item in content:
-                        text = None
-                        if isinstance(item, dict):
-                            text = item.get("text")
-                        else:
-                            text = getattr(item, "text", None)
-                        if not text:
-                            continue
-                        parsed = _coerce_text_payload(text)
-                        logger.info("MCP text parsed type=%s", type(parsed).__name__)
-                        parsed_items.append(parsed)
-                    if len(parsed_items) == 1:
-                        return parsed_items[0]
-                    if parsed_items:
-                        return parsed_items
-                    return result
-
-                def _normalize_rows(result: Any) -> list:
-                    parsed = _parse_mcp_text_result(result)
-                    if isinstance(parsed, str):
-                        parsed = _coerce_text_payload(parsed)
-                    logger.info(
-                        "MCP normalize_rows type=%s preview=%s",
-                        type(parsed).__name__,
-                        str(parsed)[:200].replace("\n", "\\n"),
-                    )
-                    if isinstance(parsed, list):
-                        return parsed
-                    if isinstance(parsed, dict):
-                        for key in ("rows", "data", "result"):
-                            value = parsed.get(key)
-                            if isinstance(value, list):
-                                return value
-                        # If a single row dict, wrap it
-                        if any(k in parsed for k in ("digest", "sample_query", "INSTANCE", "Time", "query_time")):
-                            return [parsed]
-                    return []
 
                 def _clean_cell(value: Any) -> str:
                     text = str(value) if value is not None else ""

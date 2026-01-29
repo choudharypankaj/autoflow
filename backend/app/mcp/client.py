@@ -198,6 +198,8 @@ def run_mcp_tool(tool: str, params: Dict[str, Any], *, host_name: str | None = N
         grafana_name = mcp_url[len("managed-grafana://") :].strip()
         if not grafana_name:
             raise ValueError("Invalid managed Grafana MCP URL")
+        if not tool.startswith("grafana_"):
+            raise ValueError(f"Tool '{tool}' is not supported via managed Grafana MCP host")
         from app.mcp.managed import run_managed_mcp_grafana_tool  # local import
 
         return run_managed_mcp_grafana_tool(grafana_name, tool, params)
