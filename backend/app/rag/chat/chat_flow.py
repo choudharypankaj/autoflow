@@ -642,6 +642,21 @@ class ChatFlow:
                 # Non-fatal; just skip inline selection on error
                 pass
 
+        # Split DB vs Grafana host selection to avoid mixing MCP targets.
+        grafana_host_name = None
+        db_host_name = host_name
+        try:
+            SiteSetting.update_db_cache()
+            grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
+            grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_hosts if it}
+            if host_name and host_name.lower() in grafana_names:
+                grafana_host_name = host_name
+                db_host_name = ""
+        except Exception:
+            grafana_hosts = []
+        if not grafana_host_name and grafana_hosts:
+            grafana_host_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
+
         # Determine if user asked for a summary/analysis rather than raw rows
         summary_mode = any(
             re.search(p, user_question, flags=re.IGNORECASE)
@@ -661,7 +676,7 @@ class ChatFlow:
 
         # If user targets a cluster, force summary mode.
         if re.search(r"\bcluster\b", user_question, flags=re.IGNORECASE) or (
-            host_name and "cluster" in host_name.lower()
+            db_host_name and "cluster" in db_host_name.lower()
         ):
             summary_mode = True
 
@@ -1122,16 +1137,10 @@ class ChatFlow:
             SiteSetting.update_db_cache()
             ws_list = getattr(SiteSetting, "mcp_hosts", None) or []
             managed_list = getattr(SiteSetting, "managed_mcp_agents", None) or []
-            grafana_list = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
             ws_names = {str((it or {}).get("text", "")).strip().lower() for it in ws_list if it}
             managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_list if it}
-            grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_list if it}
         except Exception:
-            ws_names, managed_names, grafana_names = set(), set(), set()
-
-        # Ensure DB queries never route to Grafana MCP hosts.
-        if host_name and host_name.lower() in grafana_names:
-            host_name = ""
+            ws_names, managed_names = set(), set()
 
         try:
             if summary_mode:
@@ -1139,17 +1148,17 @@ class ChatFlow:
                 result_rows = None
                 cached = getattr(self, "_cached_slow_query_meta", None)
                 if isinstance(cached, dict) and cached.get("type") == "slow_query_rows":
-                    same_host = (cached.get("host_name") or "") == (host_name or "")
+                    same_host = (cached.get("host_name") or "") == (db_host_name or "")
                     same_window = cached.get("start") == start_ts and cached.get("end") == end_ts
                     if same_host and same_window and isinstance(cached.get("rows"), list):
                         result_rows = cached.get("rows")
                 # Otherwise run raw query and summarize in-app
                 if result_rows is None:
-                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                    if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        result_rows = run_managed_mcp_db_query(host_name, sql_query)
+                        result_rows = run_managed_mcp_db_query(db_host_name, sql_query)
                     else:
-                        result_rows = run_mcp_db_query(sql_query, host_name=host_name)
+                        result_rows = run_mcp_db_query(sql_query, host_name=db_host_name)
 
                 # Render concise summary
 
@@ -1292,7 +1301,7 @@ class ChatFlow:
                 # Cache compact meta for follow-ups
                 self._cached_slow_query_meta = _json_safe({
                     "type": "slow_query_summary",
-                    "host_name": host_name,
+                    "host_name": db_host_name,
                     "start": start_ts,
                     "end": end_ts,
                     "digests": digest_rows,
@@ -1304,18 +1313,18 @@ class ChatFlow:
                 top_instance = instance_rows[0] if isinstance(instance_rows, list) and instance_rows else {}
                 summary_lines = [
                     f"Time window (UTC): {start_ts} to {end_ts}",
-                    f"Host: {host_name or 'default'}",
+                    f"Host: {db_host_name or 'default'}",
                 ]
                 summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
                 statement_sql = _build_statement_summary_query(start_ts, end_ts)
                 stmt_rows: list[dict] = []
                 try:
-                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                    if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        stmt_result = run_managed_mcp_db_query(host_name, statement_sql)
+                        stmt_result = run_managed_mcp_db_query(db_host_name, statement_sql)
                     else:
-                        stmt_result = run_mcp_db_query(statement_sql, host_name=host_name)
+                        stmt_result = run_mcp_db_query(statement_sql, host_name=db_host_name)
                     normalized_stmt_rows = _normalize_rows(stmt_result)
                     if isinstance(normalized_stmt_rows, list):
                         stmt_rows = [r for r in normalized_stmt_rows if isinstance(r, dict)]
@@ -1351,7 +1360,7 @@ class ChatFlow:
                     ],
                 )
 
-                grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+                grafana_text = _build_grafana_anomalies(start_ts, end_ts, grafana_host_name)
 
                 # Recommendations derived from weighted signals
                 recommendations: list[dict] = []
@@ -1488,18 +1497,18 @@ class ChatFlow:
                 result = None
                 cached = getattr(self, "_cached_slow_query_meta", None)
                 if isinstance(cached, dict) and cached.get("type") == "slow_query_rows":
-                    same_host = (cached.get("host_name") or "") == (host_name or "")
+                    same_host = (cached.get("host_name") or "") == (db_host_name or "")
                     same_window = cached.get("start") == start_ts and cached.get("end") == end_ts
                     if same_host and same_window and isinstance(cached.get("rows"), list):
                         result = cached.get("rows")
                 if result is None:
-                    if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
+                    if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         # Directly use managed MCP
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        result = run_managed_mcp_db_query(host_name, sql_query)
+                        result = run_managed_mcp_db_query(db_host_name, sql_query)
                     else:
                         # Prefer WS if host_name maps to an MCP host; otherwise, default WS selection applies
-                        result = run_mcp_db_query(sql_query, host_name=host_name)
+                        result = run_mcp_db_query(sql_query, host_name=db_host_name)
                 # Best-effort formatting
                 logger.info("Slow query raw result type=%s", type(result).__name__)
                 parsed_result = _parse_mcp_text_result(result)
@@ -1556,7 +1565,7 @@ class ChatFlow:
                             })
                 self._cached_slow_query_meta = _json_safe({
                     "type": "slow_query_rows",
-                    "host_name": host_name,
+                    "host_name": db_host_name,
                     "start": start_ts,
                     "end": end_ts,
                     "rows": compact_rows,
@@ -1570,12 +1579,12 @@ class ChatFlow:
                 return response_text
         except Exception as e:
             # Fallback to managed agents if named or if exactly one managed agent is configured
-            # First, if this is a WS scheme error and a host_name was provided, try that name as a managed agent directly.
-            if host_name and isinstance(e, Exception) and "Only ws:// or wss://" in str(e):
+            # First, if this is a WS scheme error and a host name was provided, try that name as a managed agent directly.
+            if db_host_name and isinstance(e, Exception) and "Only ws:// or wss://" in str(e):
                 try:
                     from app.mcp.managed import run_managed_mcp_db_query  # local import
                     if summary_mode:
-                        result_rows = run_managed_mcp_db_query(host_name, sql_query)
+                        result_rows = run_managed_mcp_db_query(db_host_name, sql_query)
                         raw_rows = _normalize_rows(result_rows)
                         digest_rows, instance_rows, tables_rows = _build_summary_from_rows(raw_rows)
                         digest_md = rows_to_markdown(
@@ -1584,7 +1593,7 @@ class ChatFlow:
                         )
                         tables_md = rows_to_markdown(tables_rows, ["table", "exec_count", "total_s"])
                         statement_sql = _build_statement_summary_query(start_ts, end_ts)
-                        stmt_rows = _normalize_rows(run_managed_mcp_db_query(host_name, statement_sql))
+                        stmt_rows = _normalize_rows(run_managed_mcp_db_query(db_host_name, statement_sql))
                         stmt_table_rows = []
                         for r in stmt_rows[:10]:
                             if isinstance(r, dict):
@@ -1627,7 +1636,7 @@ class ChatFlow:
                                     "Recommendation:\n"
                                     "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
                                 )
-                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, grafana_host_name)
                         ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
                         recommendations_text = _build_rule_recommendations(digest_rows, stmt_rows)
                         text = (
@@ -1655,7 +1664,7 @@ class ChatFlow:
                             text = text[:MAX_CHAT_RESULT_CHARS] + "\n\n[truncated]"
                         return text
                     else:
-                        result = run_managed_mcp_db_query(host_name, sql_query)
+                        result = run_managed_mcp_db_query(db_host_name, sql_query)
                         pretty = json.dumps(result, indent=2, ensure_ascii=False, default=str) if isinstance(result, (list, dict)) else str(result)
                         response_text = f"{pretty}"
                         if len(response_text) > MAX_CHAT_RESULT_CHARS:
@@ -1663,7 +1672,7 @@ class ChatFlow:
                         return response_text
                 except Exception as e2:
                     logger.exception("Managed MCP direct attempt failed: %s", e2)
-            fallback_name = host_name
+            fallback_name = db_host_name
             if not fallback_name:
                 try:
                     SiteSetting.update_db_cache()
@@ -1730,7 +1739,7 @@ class ChatFlow:
                                     "Recommendation:\n"
                                     "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
                                 )
-                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, grafana_host_name)
                         ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
                         recommendations_text = _build_rule_recommendations(digest_rows, stmt_rows)
                         text = (

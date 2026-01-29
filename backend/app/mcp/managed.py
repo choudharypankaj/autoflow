@@ -244,6 +244,7 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         raise RuntimeError("Grafana MCP host missing shown grafana_url or grafana_api_key")
 
     headers = {"Authorization": f"Bearer {api_key}"}
+    logger.info("Grafana MCP request tool=%s params=%s", tool, params)
     if tool in {"grafana_query_range", "grafana_query"}:
         queries = params.get("queries") if isinstance(params, dict) else None
         if isinstance(queries, list):
@@ -263,6 +264,7 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                             ]
                 except Exception:
                     pass
+        logger.info("Grafana MCP request params_resolved=%s", params)
     if tool in {"grafana_query_range", "grafana_query"}:
         resp = requests.post(
             grafana_url + "/api/ds/query",
@@ -274,6 +276,7 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         raise RuntimeError(f"Grafana MCP tool '{tool}' not supported by managed host")
 
     if resp.status_code >= 400:
+        logger.error("Grafana MCP response status=%s body=%s", resp.status_code, resp.text)
         raise RuntimeError(f"Grafana API error: {resp.status_code} {resp.text}")
     try:
         return resp.json()
