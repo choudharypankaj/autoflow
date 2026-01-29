@@ -649,9 +649,23 @@ class ChatFlow:
             SiteSetting.update_db_cache()
             grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
             grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_hosts if it}
+            ws_hosts = getattr(SiteSetting, "mcp_hosts", None) or []
+            managed_agents = getattr(SiteSetting, "managed_mcp_agents", None) or []
+            managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_agents if it}
+            ws_names = {
+                str((it or {}).get("text", "")).strip().lower()
+                for it in ws_hosts
+                if it and str((it or {}).get("href", "")).strip() and not str((it or {}).get("href", "")).strip().startswith("managed-grafana://")
+            }
             if host_name and host_name.lower() in grafana_names:
                 grafana_host_name = host_name
                 db_host_name = ""
+            # Ensure DB host never defaults to Grafana MCP.
+            if not db_host_name:
+                if managed_names:
+                    db_host_name = next(iter(managed_names))
+                elif ws_names:
+                    db_host_name = next(iter(ws_names))
         except Exception:
             grafana_hosts = []
         if not grafana_host_name and grafana_hosts:
