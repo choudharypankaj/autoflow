@@ -272,6 +272,15 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             params={"type": "dash-db"},
             timeout=10,
         )
+    elif tool == "grafana_list_panels":
+        uid = str(params.get("uid", "")).strip() if isinstance(params, dict) else ""
+        if not uid:
+            raise RuntimeError("Grafana panel list requires dashboard uid")
+        resp = requests.get(
+            grafana_url + f"/api/dashboards/uid/{uid}",
+            headers=headers,
+            timeout=10,
+        )
     elif tool in {"grafana_query_range", "grafana_query"}:
         queries = params.get("queries") if isinstance(params, dict) else None
         ds_uid = None

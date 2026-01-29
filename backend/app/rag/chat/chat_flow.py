@@ -954,41 +954,44 @@ class ChatFlow:
                 grafana_entry = grafana_hosts[0]
                 grafana_name = str((grafana_entry or {}).get("name", "")).strip() or None
             if not grafana_entry:
-                return "Grafana dashboards:\n\n- Grafana MCP host not configured."
+                return "Grafana panels:\n\n- Grafana MCP host not configured."
 
-            tool = "grafana_list_dashboards"
+            dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_dashboard_uid", "") or "").strip()
+            if not dashboard_uid:
+                return "Grafana panels:\n\n- Grafana dashboard UID not configured."
+
+            tool = "grafana_list_panels"
             try:
                 mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
                 if mcp_ws_url:
-                    result = run_mcp_tool_url(mcp_ws_url, tool, {})
+                    result = run_mcp_tool_url(mcp_ws_url, tool, {"uid": dashboard_uid})
                 else:
-                    result = run_mcp_tool(tool, {}, host_name=grafana_name)
+                    result = run_mcp_tool(tool, {"uid": dashboard_uid}, host_name=grafana_name)
             except Exception as e:
                 logger.exception(
                     "Grafana MCP query failed: host=%s tool=%s params=%s",
                     grafana_name,
                     tool,
-                    {},
+                    {"uid": dashboard_uid},
                 )
-                return f"Grafana dashboards:\n\n- Grafana list dashboards failed: {e}"
+                return f"Grafana panels:\n\n- Grafana list panels failed: {e}"
 
-            dashboards = []
-            if isinstance(result, list):
-                dashboards = result
-            elif isinstance(result, dict):
-                dashboards = result.get("dashboards") or result.get("data") or []
-            if not dashboards:
-                return "Grafana dashboards:\n\n- No dashboards found."
+            dashboard = result.get("dashboard") if isinstance(result, dict) else None
+            panels = []
+            if isinstance(dashboard, dict):
+                panels = dashboard.get("panels") or []
+            if not panels:
+                return "Grafana panels:\n\n- No panels found."
 
             rows = []
-            for d in dashboards[:20]:
-                if isinstance(d, dict):
+            for p in panels:
+                if isinstance(p, dict):
                     rows.append({
-                        "title": d.get("title", ""),
-                        "uid": d.get("uid", ""),
-                        "folder": d.get("folderTitle", ""),
+                        "title": p.get("title", ""),
+                        "id": p.get("id", ""),
+                        "type": p.get("type", ""),
                     })
-            return "Grafana dashboards:\n\n" + rows_to_markdown(rows, ["title", "uid", "folder"])
+            return "Grafana panels:\n\n" + rows_to_markdown(rows, ["title", "id", "type"])
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
             ai_recommendations_text = ""
