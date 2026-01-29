@@ -672,6 +672,15 @@ class ChatFlow:
                     db_host_name = next(iter(managed_names))
                 elif ws_names:
                     db_host_name = next(iter(ws_names))
+            # Guard against Grafana MCP entries leaking into DB host selection.
+            if db_host_name:
+                for it in ws_hosts:
+                    if str((it or {}).get("text", "")).strip().lower() == db_host_name.lower():
+                        href = str((it or {}).get("href", "")).strip()
+                        if href.startswith("managed-grafana://"):
+                            logger.info("DB host_name points to Grafana MCP; clearing host_name=%s href=%s", db_host_name, href)
+                            db_host_name = ""
+                            break
         except Exception:
             grafana_hosts = []
         if not grafana_host_name and grafana_hosts:
