@@ -920,13 +920,8 @@ class ChatFlow:
 
             tool = str(getattr(SiteSetting, "mcp_grafana_tool", "") or "").strip() or "grafana_query_range"
             queries = getattr(SiteSetting, "mcp_grafana_queries", None) or [
-                {"refId": "A", "expr": "rate(container_cpu_cfs_throttled_seconds_total[5m])", "legend": "cpu_throttled"},
-                {"refId": "B", "expr": "rate(container_cpu_usage_seconds_total[5m])", "legend": "cpu_usage"},
-                {"refId": "C", "expr": "container_memory_working_set_bytes", "legend": "mem_working_set"},
-                {"refId": "D", "expr": "rate(node_disk_read_time_seconds_total[5m])", "legend": "disk_read_time"},
-                {"refId": "E", "expr": "rate(tikv_server_is_busy_total[5m])", "legend": "tikv_server_busy"},
                 {
-                    "refId": "F",
+                    "refId": "A",
                     "expr": "histogram_quantile(0.999, sum(rate(tidb_server_handle_query_duration_seconds_bucket{k8s_cluster=\"$k8s_cluster\", tidb_cluster=\"$tidb_cluster\", instance=~\"$instance\"}[1m])) by (le))",
                     "legend": "tidb_query_duration_p999",
                 },
