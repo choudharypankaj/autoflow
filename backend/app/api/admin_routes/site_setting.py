@@ -182,6 +182,7 @@ def update_site_setting(
             name = str((item or {}).get("name", "")).strip() or "<unnamed>"
             grafana_url = str((item or {}).get("grafana_url", "")).strip()
             api_key = str((item or {}).get("grafana_api_key", "")).strip()
+            mcp_ws_url = str((item or {}).get("mcp_ws_url", "")).strip()
             if not grafana_url or not api_key:
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
@@ -191,6 +192,11 @@ def update_site_setting(
                 raise HTTPException(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Grafana host '{name}' has invalid grafana_url: {grafana_url}",
+                )
+            if mcp_ws_url and not (mcp_ws_url.startswith("ws://") or mcp_ws_url.startswith("wss://")):
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Grafana host '{name}' has invalid mcp_ws_url: {mcp_ws_url}",
                 )
             base = grafana_url.rstrip("/")
             try:
@@ -215,6 +221,20 @@ def update_site_setting(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Grafana auth failed for '{name}': {resp.status_code} {resp.text}",
                 )
+            if mcp_ws_url:
+                SiteSetting.update_db_cache()
+                mcp_hosts = getattr(SiteSetting, "mcp_hosts", None) or []
+                updated: List[Dict[str, str]] = []
+                found = False
+                for it in mcp_hosts:
+                    if str((it or {}).get("text", "")).strip().lower() == name.lower():
+                        updated.append({"text": name, "href": mcp_ws_url})
+                        found = True
+                    else:
+                        updated.append(it)
+                if not found:
+                    updated.append({"text": name, "href": mcp_ws_url})
+                SiteSetting.update_setting(session, "mcp_hosts", updated)
 
     try:
         SiteSetting.update_setting(session, setting_name, request.value)
