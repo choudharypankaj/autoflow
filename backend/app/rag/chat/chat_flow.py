@@ -925,6 +925,11 @@ class ChatFlow:
                 {"refId": "C", "expr": "container_memory_working_set_bytes", "legend": "mem_working_set"},
                 {"refId": "D", "expr": "rate(node_disk_read_time_seconds_total[5m])", "legend": "disk_read_time"},
                 {"refId": "E", "expr": "rate(tikv_server_is_busy_total[5m])", "legend": "tikv_server_busy"},
+                {
+                    "refId": "F",
+                    "expr": "histogram_quantile(0.999, sum(rate(tidb_server_handle_query_duration_seconds_bucket{k8s_cluster=\"$k8s_cluster\", tidb_cluster=\"$tidb_cluster\", instance=~\"$instance\"}[1m])) by (le))",
+                    "legend": "tidb_query_duration_p999",
+                },
             ]
 
             params = {
