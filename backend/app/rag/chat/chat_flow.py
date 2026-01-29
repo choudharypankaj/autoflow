@@ -622,7 +622,9 @@ class ChatFlow:
                     try:
                         name = str(item.get("text", "")).strip()
                         href = str((item or {}).get("href", "")).strip()
-                        if name and href and not href.startswith("managed-grafana://"):
+                        if name and href and not href.startswith("managed-grafana://") and (
+                            href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://")
+                        ):
                             db_valid_names.add(name.lower())
                     except Exception:
                         continue
@@ -651,6 +653,7 @@ class ChatFlow:
         # Split DB vs Grafana host selection to avoid mixing MCP targets.
         grafana_host_name = None
         db_host_name = host_name
+        db_host_ready = False
         try:
             SiteSetting.update_db_cache()
             grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
@@ -661,7 +664,10 @@ class ChatFlow:
             ws_names = {
                 str((it or {}).get("text", "")).strip().lower()
                 for it in ws_hosts
-                if it and str((it or {}).get("href", "")).strip() and not str((it or {}).get("href", "")).strip().startswith("managed-grafana://")
+                if it
+                and (href := str((it or {}).get("href", "")).strip())
+                and not href.startswith("managed-grafana://")
+                and (href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://"))
             }
             if host_name and host_name.lower() in grafana_names:
                 grafana_host_name = host_name
@@ -681,8 +687,22 @@ class ChatFlow:
                             logger.info("DB host_name points to Grafana MCP; clearing host_name=%s href=%s", db_host_name, href)
                             db_host_name = ""
                             break
+            valid_db_host = False
+            if db_host_name:
+                if db_host_name.lower() in managed_names:
+                    valid_db_host = True
+                elif db_host_name.lower() in ws_names:
+                    valid_db_host = True
+            if not valid_db_host:
+                if db_host_name:
+                    logger.info("DB MCP host invalid or unsupported; skipping DB queries host_name=%s", db_host_name)
+                db_host_name = ""
+                db_host_ready = False
+            else:
+                db_host_ready = True
         except Exception:
             grafana_hosts = []
+            db_host_ready = bool(db_host_name)
         if not grafana_host_name and grafana_hosts:
             grafana_host_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
 
@@ -956,6 +976,14 @@ class ChatFlow:
             if not grafana_entry:
                 return "Grafana panels:\n\n- Grafana MCP host not configured."
 
+            try:
+                start_dt = datetime.strptime(start_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+                end_dt = datetime.strptime(end_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+                start_ms = int(start_dt.timestamp() * 1000)
+                end_ms = int(end_dt.timestamp() * 1000)
+            except Exception:
+                return "Grafana Duration analysis:\n\n- Invalid time window; expected 'YYYY-MM-DD HH:MM:SS' UTC."
+
             dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_dashboard_uid", "") or "").strip()
             if not dashboard_uid:
                 return "Grafana Duration analysis:\n\n- Grafana dashboard UID not configured."
@@ -1130,7 +1158,13 @@ class ChatFlow:
             SiteSetting.update_db_cache()
             ws_list = getattr(SiteSetting, "mcp_hosts", None) or []
             managed_list = getattr(SiteSetting, "managed_mcp_agents", None) or []
-            ws_names = {str((it or {}).get("text", "")).strip().lower() for it in ws_list if it}
+            ws_names = {
+                str((it or {}).get("text", "")).strip().lower()
+                for it in ws_list
+                if it
+                and (href := str((it or {}).get("href", "")).strip())
+                and (href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://"))
+            }
             managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_list if it}
         except Exception:
             ws_names, managed_names = set(), set()
@@ -1147,7 +1181,9 @@ class ChatFlow:
                         result_rows = cached.get("rows")
                 # Otherwise run raw query and summarize in-app
                 if result_rows is None:
-                    if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
+                    if not db_host_ready:
+                        result_rows = []
+                    elif db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
                         result_rows = run_managed_mcp_db_query(db_host_name, sql_query)
                     else:
@@ -1306,21 +1342,24 @@ class ChatFlow:
                 top_instance = instance_rows[0] if isinstance(instance_rows, list) and instance_rows else {}
                 summary_lines = [
                     f"Time window (UTC): {start_ts} to {end_ts}",
-                    f"Host: {db_host_name or 'default'}",
+                    f"Host: {db_host_name or ('not configured' if not db_host_ready else 'default')}",
                 ]
                 summary_text = "\n".join(f"- {line}" for line in summary_lines)
 
                 statement_sql = _build_statement_summary_query(start_ts, end_ts)
                 stmt_rows: list[dict] = []
                 try:
-                    if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
-                        from app.mcp.managed import run_managed_mcp_db_query  # local import
-                        stmt_result = run_managed_mcp_db_query(db_host_name, statement_sql)
+                    if not db_host_ready:
+                        stmt_rows = []
                     else:
-                        stmt_result = run_mcp_db_query(statement_sql, host_name=db_host_name)
-                    normalized_stmt_rows = _normalize_rows(stmt_result)
-                    if isinstance(normalized_stmt_rows, list):
-                        stmt_rows = [r for r in normalized_stmt_rows if isinstance(r, dict)]
+                        if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
+                            from app.mcp.managed import run_managed_mcp_db_query  # local import
+                            stmt_result = run_managed_mcp_db_query(db_host_name, statement_sql)
+                        else:
+                            stmt_result = run_mcp_db_query(statement_sql, host_name=db_host_name)
+                        normalized_stmt_rows = _normalize_rows(stmt_result)
+                        if isinstance(normalized_stmt_rows, list):
+                            stmt_rows = [r for r in normalized_stmt_rows if isinstance(r, dict)]
                 except Exception as e:
                     logger.exception("Statement summary query failed: %s", e)
                     stmt_rows = []
@@ -1495,6 +1534,8 @@ class ChatFlow:
                     if same_host and same_window and isinstance(cached.get("rows"), list):
                         result = cached.get("rows")
                 if result is None:
+                    if not db_host_ready:
+                        return "Database query skipped: no valid DB MCP host configured for this request."
                     if db_host_name and db_host_name.lower() in managed_names and db_host_name.lower() not in ws_names:
                         # Directly use managed MCP
                         from app.mcp.managed import run_managed_mcp_db_query  # local import
