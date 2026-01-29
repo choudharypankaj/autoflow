@@ -612,27 +612,33 @@ class ChatFlow:
                     flags=re.IGNORECASE,
                 )
                 candidate = m.group(1).strip() if m else ""
-                # Validate against configured MCP hosts and managed agents
+                # Validate against configured MCP DB hosts and managed agents (exclude Grafana hosts).
                 SiteSetting.update_db_cache()
                 ws = getattr(SiteSetting, "mcp_hosts", None) or []
                 managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
-                valid_names = set()
+                grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
+                db_valid_names = set()
                 for item in ws:
                     try:
                         name = str(item.get("text", "")).strip()
-                        if name:
-                            valid_names.add(name.lower())
+                        href = str((item or {}).get("href", "")).strip()
+                        if name and href and not href.startswith("managed-grafana://"):
+                            db_valid_names.add(name.lower())
                     except Exception:
                         continue
                 for item in managed:
                     try:
                         name = str(item.get("name", "")).strip()
                         if name:
-                            valid_names.add(name.lower())
+                            db_valid_names.add(name.lower())
                     except Exception:
                         continue
-                if candidate and candidate.lower() in valid_names:
-                    host_name = candidate
+                grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_hosts if it}
+                if candidate:
+                    if candidate.lower() in grafana_names:
+                        host_name = candidate
+                    elif candidate.lower() in db_valid_names:
+                        host_name = candidate
                 # If still no host_name provided, but exactly one managed agent exists, default to it
                 if not host_name and isinstance(managed, list) and len(managed) == 1:
                     maybe_name = str((managed[0] or {}).get("name", "")).strip()
