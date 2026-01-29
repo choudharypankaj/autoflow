@@ -177,7 +177,7 @@ mcp:
     description: "Grafana template variables for MCP queries, e.g. {k8s_cluster: my-cluster, tidb_cluster: test, instance: .*}."
     client: false
   mcp_grafana_dashboard_uid:
-    default: ""
+    default: "000000011"
     data_type: str
     description: "Grafana dashboard UID used to list panels."
     client: false
