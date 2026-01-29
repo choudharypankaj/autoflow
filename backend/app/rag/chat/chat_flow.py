@@ -983,19 +983,57 @@ class ChatFlow:
             if not panels:
                 return "Grafana panels:\n\n- No panels found."
 
-            rows = []
+            query_row = None
             for p in panels:
                 if isinstance(p, dict):
                     title = str(p.get("title", "") or "")
-                    if title.strip().lower() != "query summary":
+                    if "query summary" in title.strip().lower() and p.get("type") == "row":
+                        query_row = p
+                        break
+            if not query_row:
+                return "Grafana panels:\n\n- Query Summary row not found."
+
+            child_panels = []
+            row_id = query_row.get("id")
+            # If row panel contains nested panels (collapsed), use those.
+            if isinstance(query_row.get("panels"), list):
+                child_panels = [p for p in query_row.get("panels") if isinstance(p, dict)]
+            else:
+                # Otherwise, infer panels by row linkage or grid position.
+                def _y(panel: dict) -> int:
+                    gp = panel.get("gridPos") or {}
+                    return int(gp.get("y") or 0)
+                sorted_panels = [p for p in panels if isinstance(p, dict)]
+                sorted_panels.sort(key=_y)
+                row_y = _y(query_row)
+                next_row_y = None
+                for p in sorted_panels:
+                    if p.get("type") == "row" and _y(p) > row_y:
+                        next_row_y = _y(p)
+                        break
+                for p in sorted_panels:
+                    if p.get("type") == "row":
                         continue
-                    rows.append({
-                        "title": title,
-                        "id": p.get("id", ""),
-                        "type": p.get("type", ""),
-                    })
+                    # Check explicit row linkage used by some Grafana versions.
+                    if row_id and (p.get("panelGroup") == row_id or p.get("rowId") == row_id):
+                        child_panels.append(p)
+                        continue
+                    py = _y(p)
+                    if py > row_y and (next_row_y is None or py < next_row_y):
+                        child_panels.append(p)
+
+            rows = []
+            for p in child_panels:
+                title = str(p.get("title", "") or "")
+                if not title:
+                    continue
+                rows.append({
+                    "title": title,
+                    "id": p.get("id", ""),
+                    "type": p.get("type", ""),
+                })
             if not rows:
-                return "Grafana panels:\n\n- Query Summary panel not found."
+                return "Grafana panels (Query Summary):\n\n- No panels found under Query Summary."
             return "Grafana panels (Query Summary):\n\n" + rows_to_markdown(rows, ["title", "id", "type"])
 
         def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
