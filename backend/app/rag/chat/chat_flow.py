@@ -810,6 +810,34 @@ class ChatFlow:
                     return [parsed]
             return []
 
+        def _clean_cell(value: Any) -> str:
+            text = str(value) if value is not None else ""
+            # remove control characters / non-printable
+            text = "".join(ch if ch.isprintable() else " " for ch in text)
+            # escape table separators
+            text = text.replace("|", r"\|")
+            return " ".join(text.split()) or "-"
+
+        def rows_to_markdown(result: Any, columns: list[str]) -> str:
+            rows = _normalize_rows(result)
+            if not rows:
+                return "(no data)"
+            # normalize dict rows
+            lines = []
+            header = " | ".join(columns)
+            sep = " | ".join(["---"] * len(columns))
+            lines.append(header)
+            lines.append(sep)
+            for r in rows[:10]:
+                if isinstance(r, dict):
+                    values = [_clean_cell(r.get(c, "")) for c in columns]
+                elif isinstance(r, (list, tuple)):
+                    values = [_clean_cell(x) for x in r[: len(columns)]]
+                else:
+                    values = [_clean_cell(r)]
+                lines.append(" | ".join(values))
+            return "\n".join(lines)
+
         def _build_summary_from_rows(raw_rows: list) -> tuple[list[dict], list[dict], list[dict]]:
             digest_agg: dict[str, dict] = {}
             instance_agg: dict[str, dict] = {}
@@ -1012,26 +1040,6 @@ class ChatFlow:
                     # escape table separators
                     text = text.replace("|", r"\|")
                     return " ".join(text.split()) or "-"
-
-                def rows_to_markdown(result: Any, columns: list[str]) -> str:
-                    rows = _normalize_rows(result)
-                    if not rows:
-                        return "(no data)"
-                    # normalize dict rows
-                    lines = []
-                    header = " | ".join(columns)
-                    sep = " | ".join(["---"] * len(columns))
-                    lines.append(header)
-                    lines.append(sep)
-                    for r in rows[:10]:
-                        if isinstance(r, dict):
-                            values = [_clean_cell(r.get(c, "")) for c in columns]
-                        elif isinstance(r, (list, tuple)):
-                            values = [_clean_cell(x) for x in r[: len(columns)]]
-                        else:
-                            values = [_clean_cell(r)]
-                        lines.append(" | ".join(values))
-                    return "\n".join(lines)
 
                 raw_rows = _normalize_rows(result_rows)
                 if not raw_rows and isinstance(getattr(self, "_cached_slow_query_meta", None), dict):
