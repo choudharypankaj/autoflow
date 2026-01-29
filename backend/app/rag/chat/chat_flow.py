@@ -985,6 +985,55 @@ class ChatFlow:
                 return "Grafana anomalies (window):\n\n- No obvious anomalies detected."
             return "Grafana anomalies (window):\n\n" + "\n".join(anomalies)
 
+        def _build_ai_recommendations(raw_rows: list) -> tuple[str, str, str]:
+            ai_recommendations_text = ""
+            ai_examples_json = ""
+            try:
+                examples = []
+                for r in raw_rows:
+                    if not isinstance(r, dict):
+                        continue
+                    plan_text = str(r.get("plan") or "").strip()
+                    if not plan_text:
+                        continue
+                    examples.append({"plan": plan_text})
+                    if len(examples) >= 3:
+                        break
+                if examples:
+                    plan_only = [{"plan": item.get("plan", "")} for item in examples if item.get("plan")]
+                    ai_examples_json = json.dumps(plan_only, ensure_ascii=False)
+                    prompt_text = (
+                        "You are a TiDB performance expert. Analyze the execution plans "
+                        "to suggest concrete index or query changes.\n"
+                        "For each plan, output in this exact format:\n"
+                        "Plan: <short summary of plan>\n"
+                        "Recommendation: <specific action>\n"
+                        "Reason: <why needed>\n"
+                        "Details: <tables/columns/index names; if unknown say 'unknown'>\n"
+                        "---\n"
+                        "Do not ask for more data. Use only the provided plans.\n\n"
+                        f"Plans (JSON): {ai_examples_json}\n"
+                    )
+                    prompt = RichPromptTemplate(prompt_text)
+                    ai_recommendations_text = str(self._fast_llm.predict(prompt)).strip()
+                    if re.search(r"please\s+provide.*plans?|don't\s+see\s+any\s+actual\s+data", ai_recommendations_text, flags=re.IGNORECASE):
+                        retry_prompt = RichPromptTemplate(
+                            "You have all required execution plans below. Do not ask for more data. "
+                            "Provide recommendations in the required format.\n\n"
+                            f"Plans (JSON): {ai_examples_json}\n"
+                        )
+                        ai_recommendations_text = str(self._fast_llm.predict(retry_prompt)).strip()
+                    if re.search(r"please\s+provide.*plans?|don't\s+see\s+any\s+actual\s+data", ai_recommendations_text, flags=re.IGNORECASE):
+                        ai_recommendations_text = ""
+            except Exception as e:
+                logger.exception("AI recommendation generation failed (fallback): %s", e)
+
+            if ai_recommendations_text:
+                return ai_examples_json or "[]", "AI status: success", ai_recommendations_text
+            if not ai_examples_json:
+                return "[]", "AI status: no plans available", "- AI analysis unavailable; no execution plans were returned in CLUSTER_SLOW_QUERY for this window."
+            return ai_examples_json, "AI status: failed to generate recommendations", "- AI analysis unavailable; model did not return recommendations for the provided plans."
+
         sql_query = (
             "select Time, digest, plan_digest, INSTANCE, query_time, plan, "
             "substring(query, 1, 2000) as query, "
@@ -1507,6 +1556,8 @@ class ChatFlow:
                                     "Recommendation:\n"
                                     "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
                                 )
+                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+                        ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
@@ -1516,8 +1567,14 @@ class ChatFlow:
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
                             f"{stmt_md}\n\n"
+                            f"{grafana_text}\n\n"
                             "Impacted tables:\n\n"
                             f"{tables_md}\n\n"
+                            "AI inputs (query + plan JSON):\n\n"
+                            f"```json\n{ai_examples_json}\n```\n\n"
+                            f"{ai_status_line}\n\n"
+                            "AI recommendations:\n"
+                            f"{ai_recommendations_text}\n\n"
                             f"{stmt_reco}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
@@ -1599,6 +1656,8 @@ class ChatFlow:
                                     "Recommendation:\n"
                                     "- High plan count with elevated latency; review plan stability, update stats, and consider plan bindings.\n\n"
                                 )
+                        grafana_text = _build_grafana_anomalies(start_ts, end_ts, None)
+                        ai_examples_json, ai_status_line, ai_recommendations_text = _build_ai_recommendations(raw_rows)
                         text = (
                             "Slow query summary (managed fallback):\n\n"
                             f"{digest_md}\n\n"
@@ -1608,8 +1667,14 @@ class ChatFlow:
                             f"```sql\n{statement_sql}\n```\n\n"
                             "Statement summary (by digest):\n\n"
                             f"{stmt_md}\n\n"
+                            f"{grafana_text}\n\n"
                             "Impacted tables:\n\n"
                             f"{tables_md}\n\n"
+                            "AI inputs (query + plan JSON):\n\n"
+                            f"```json\n{ai_examples_json}\n```\n\n"
+                            f"{ai_status_line}\n\n"
+                            "AI recommendations:\n"
+                            f"{ai_recommendations_text}\n\n"
                             f"{stmt_reco}"
                         )
                         if len(text) > MAX_CHAT_RESULT_CHARS:
