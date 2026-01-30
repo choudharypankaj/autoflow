@@ -5,6 +5,59 @@ from app.mcp.client import run_mcp_tool, run_mcp_tool_url
 from app.site_settings import SiteSetting
 
 
+def _run_grafana_tool(
+    grafana_entry: dict,
+    grafana_name: str | None,
+    tool: str,
+    params: dict,
+) -> dict | list | str | None:
+    mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
+    if mcp_ws_url:
+        return run_mcp_tool_url(mcp_ws_url, tool, params)
+    try:
+        from app.mcp.managed import run_managed_mcp_grafana_tool  # local import
+        return run_managed_mcp_grafana_tool(grafana_name, tool, params)
+    except Exception:
+        return run_mcp_tool(tool, params, host_name=grafana_name)
+
+
+def _build_grafana_panel_list(
+    grafana_entry: dict,
+    grafana_name: str | None,
+    logger: logging.Logger,
+) -> str:
+    dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_panels_uid", "") or "").strip()
+    dashboard_title = str(getattr(SiteSetting, "mcp_grafana_panels_title", "") or "").strip() or "Grafana"
+    if not dashboard_uid:
+        return ""
+    try:
+        result = _run_grafana_tool(grafana_entry, grafana_name, "grafana_list_panels", {"uid": dashboard_uid})
+    except Exception as e:
+        logger.exception("Grafana list panels failed: %s", e)
+        return f"Grafana panels ({dashboard_title}):\n\n- Grafana list panels failed: {e}"
+    dashboard = result.get("dashboard") if isinstance(result, dict) else None
+    panels = []
+    if isinstance(dashboard, dict):
+        panels = dashboard.get("panels") or []
+    rows = []
+    for p in panels:
+        if not isinstance(p, dict):
+            continue
+        title = str(p.get("title", "") or "")
+        panel_id = p.get("id", "")
+        if not title and not panel_id:
+            continue
+        rows.append({"title": title, "id": panel_id, "type": p.get("type", "")})
+    if not rows:
+        return f"Grafana panels ({dashboard_title}):\n\n- No panels found."
+    header = "title | id | type"
+    sep = "--- | --- | ---"
+    lines = [header, sep]
+    for r in rows[:50]:
+        lines.append(f"{r.get('title','')} | {r.get('id','')} | {r.get('type','')}")
+    return f"Grafana panels ({dashboard_title}):\n\n" + "\n".join(lines)
+
+
 def build_grafana_duration_analysis(
     start_time: str,
     end_time: str,
@@ -52,16 +105,7 @@ def build_grafana_duration_analysis(
         "vars": getattr(SiteSetting, "mcp_grafana_vars", None) or {},
     }
     try:
-        mcp_ws_url = str((grafana_entry or {}).get("mcp_ws_url", "")).strip()
-        if mcp_ws_url:
-            result = run_mcp_tool_url(mcp_ws_url, tool, params)
-        else:
-            # Prefer managed Grafana runner when ws URL is not set.
-            try:
-                from app.mcp.managed import run_managed_mcp_grafana_tool  # local import
-                result = run_managed_mcp_grafana_tool(grafana_name, tool, params)
-            except Exception:
-                result = run_mcp_tool(tool, params, host_name=grafana_name)
+        result = _run_grafana_tool(grafana_entry, grafana_name, tool, params)
     except Exception as e:
         logger.exception(
             "Grafana MCP query failed: host=%s tool=%s params=%s",
@@ -128,12 +172,19 @@ def build_grafana_duration_analysis(
                             except Exception:
                                 continue
     if not values:
+        panel_list = _build_grafana_panel_list(grafana_entry, grafana_name, logger)
+        if panel_list:
+            return "Grafana Duration analysis:\n\n- No data points found.\n\n" + panel_list
         return "Grafana Duration analysis:\n\n- No data points found."
     avg = sum(values) / len(values)
     max_v = max(values)
-    return (
+    panel_list = _build_grafana_panel_list(grafana_entry, grafana_name, logger)
+    text = (
         "Grafana Duration analysis:\n\n"
         f"- avg: {avg:.6f}\n"
         f"- max: {max_v:.6f}\n"
         f"- points: {len(values)}"
     )
+    if panel_list:
+        text = f"{text}\n\n{panel_list}"
+    return text

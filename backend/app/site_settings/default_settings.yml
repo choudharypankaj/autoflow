@@ -181,6 +181,16 @@ mcp:
     data_type: str
     description: "Grafana dashboard UID used to list panels."
     client: false
+  mcp_grafana_panels_uid:
+    default: "Q6RuHYIWk"
+    data_type: str
+    description: "Grafana dashboard UID used to list panels."
+    client: false
+  mcp_grafana_panels_title:
+    default: "Test-Cluster-PD"
+    data_type: str
+    description: "Grafana dashboard title for panel listing."
+    client: false
   mcp_grafana_duration_panel_id:
     default: 80
     data_type: int
