@@ -54,50 +54,6 @@ def _extract_series_values(series: list) -> list[float]:
     return values
 
 
-def _build_grafana_panel_list(
-    grafana_entry: dict,
-    grafana_name: str | None,
-    logger: logging.Logger,
-) -> str:
-    dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_panels_uid", "") or "").strip()
-    dashboard_title = str(getattr(SiteSetting, "mcp_grafana_panels_title", "") or "").strip() or "Grafana"
-    if not dashboard_uid:
-        return ""
-    try:
-        result = _run_grafana_tool(grafana_entry, grafana_name, "grafana_list_panels", {"uid": dashboard_uid})
-    except Exception as e:
-        logger.exception("Grafana list panels failed: %s", e)
-        return f"Grafana panels ({dashboard_title}):\n\n- Grafana list panels failed: {e}"
-    dashboard = result.get("dashboard") if isinstance(result, dict) else None
-    panels = []
-    if isinstance(dashboard, dict):
-        panels = dashboard.get("panels") or []
-    rows = []
-    for p in panels:
-        if not isinstance(p, dict):
-            continue
-        title = str(p.get("title", "") or "")
-        panel_id = p.get("id", "")
-        if not title and not panel_id:
-            continue
-        rows.append({"title": title, "id": panel_id, "type": p.get("type", "")})
-    # Filter to Storage capacity singlestat (id 100) for PD dashboard.
-    filtered = [
-        r for r in rows
-        if str(r.get("title", "")).strip().lower() == "storage capacity"
-        and str(r.get("type", "")).strip().lower() == "singlestat"
-        and str(r.get("id", "")) == "100"
-    ]
-    if not filtered:
-        return f"Grafana panels ({dashboard_title}):\n\n- Storage capacity (id=100, singlestat) panel not found."
-    header = "title | id | type"
-    sep = "--- | --- | ---"
-    lines = [header, sep]
-    for r in filtered:
-        lines.append(f"{r.get('title','')} | {r.get('id','')} | {r.get('type','')}")
-    return f"Grafana panels ({dashboard_title}):\n\n" + "\n".join(lines)
-
-
 def _build_grafana_storage_capacity(
     grafana_entry: dict,
     grafana_name: str | None,
@@ -224,13 +180,18 @@ def build_grafana_duration_analysis(
 
     values = _extract_series_values(series)
     if not values:
-        panel_list = _build_grafana_panel_list(grafana_entry, grafana_name, logger)
-        if panel_list:
-            return "Grafana Duration analysis:\n\n- No data points found.\n\n" + panel_list
+        storage_text = _build_grafana_storage_capacity(
+            grafana_entry,
+            grafana_name,
+            logger,
+            start_ms,
+            end_ms,
+        )
+        if storage_text:
+            return "Grafana Duration analysis:\n\n- No data points found.\n\n" + storage_text
         return "Grafana Duration analysis:\n\n- No data points found."
     avg = sum(values) / len(values)
     max_v = max(values)
-    panel_list = _build_grafana_panel_list(grafana_entry, grafana_name, logger)
     storage_text = _build_grafana_storage_capacity(
         grafana_entry,
         grafana_name,
@@ -246,6 +207,4 @@ def build_grafana_duration_analysis(
     )
     if storage_text:
         text = f"{text}\n\n{storage_text}"
-    if panel_list:
-        text = f"{text}\n\n{panel_list}"
     return text
