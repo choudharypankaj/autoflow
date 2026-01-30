@@ -304,48 +304,8 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         dashboard = dash.get("dashboard") or {}
         panels = dashboard.get("panels") or []
         rows = dashboard.get("rows") or []
-        templating = dashboard.get("templating") or {}
-        template_list = templating.get("list") or []
-        default_vars = {}
-        for item in template_list:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "").strip()
-            current = item.get("current") or {}
-            value = ""
-            if isinstance(current, dict):
-                value = current.get("value") or current.get("text") or ""
-                if isinstance(value, (list, tuple)):
-                    value = "|".join(str(v) for v in value if v is not None)
-            elif isinstance(current, str):
-                value = current
-            if isinstance(value, str) and value == "$__all":
-                all_value = item.get("allValue") or ""
-                if all_value:
-                    value = all_value
-            if not value:
-                options = item.get("options") or []
-                if isinstance(options, list):
-                    selected = [opt for opt in options if isinstance(opt, dict) and opt.get("selected")]
-                    if selected:
-                        selected_vals = []
-                        for opt in selected:
-                            selected_vals.append(opt.get("value") or opt.get("text") or "")
-                        value = "|".join(str(v) for v in selected_vals if v)
-            if name and value:
-                default_vars[name] = value
         if not isinstance(vars_map, dict):
             vars_map = {}
-        if default_vars:
-            # Only fill missing vars to respect explicit overrides.
-            for k, v in default_vars.items():
-                vars_map.setdefault(k, v)
-            logger.info("Grafana panel vars resolved=%s", default_vars)
-        elif template_list:
-            logger.info(
-                "Grafana panel vars templating_list=%s",
-                [t.get("name") for t in template_list if isinstance(t, dict)],
-            )
         def _iter_panels(items):
             for item in items or []:
                 if not isinstance(item, dict):
@@ -372,22 +332,6 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
         if not panel:
             missing = f"id {panel_id}" if panel_id else f"title '{panel_title}'"
             raise RuntimeError(f"Grafana panel {missing} not found")
-        # Panel scoped vars can override defaults for repeated panels
-        scoped_vars = panel.get("scopedVars") if isinstance(panel, dict) else None
-        if isinstance(scoped_vars, dict):
-            for k, v in scoped_vars.items():
-                if isinstance(v, dict) and v.get("value") is not None:
-                    vars_map.setdefault(k, v.get("value"))
-            logger.info("Grafana panel scoped_vars=%s", list(scoped_vars.keys()))
-        unresolved = []
-        for item in template_list:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "").strip()
-            if name and name not in vars_map:
-                unresolved.append(name)
-        if unresolved:
-            logger.info("Grafana panel vars unresolved=%s", unresolved)
         targets = panel.get("targets") or []
         if not isinstance(targets, list) or not targets:
             raise RuntimeError("Grafana panel has no targets")
@@ -399,39 +343,6 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             default_ds = next((d for d in ds_list if d.get("isDefault")), None) or (ds_list[0] if ds_list else None)
             if isinstance(default_ds, dict) and default_ds.get("uid"):
                 ds_info = {"uid": default_ds.get("uid"), "type": default_ds.get("type", "prometheus")}
-        # Try to resolve template variables using label_values when current values are missing.
-        ds_uid_for_vars = ds_info.get("uid") if isinstance(ds_info, dict) else None
-        if ds_uid_for_vars and template_list:
-            for item in template_list:
-                if not isinstance(item, dict):
-                    continue
-                name = str(item.get("name") or "").strip()
-                if not name or name in vars_map:
-                    continue
-                query = str(item.get("query") or "").strip()
-                match = re.match(r"label_values\\(([^,\\)]+)?\\s*,?\\s*([^\\)]+)?\\)", query)
-                if not match:
-                    continue
-                metric_part = (match.group(1) or "").strip()
-                label_part = (match.group(2) or "").strip()
-                label = label_part or metric_part
-                metric = metric_part if label_part else ""
-                if not label:
-                    continue
-                params = {}
-                if metric:
-                    params["match[]"] = metric
-                values_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid_for_vars}/api/v1/label/{label}/values"
-                try:
-                    resp = requests.get(values_url, headers=headers, params=params, timeout=10)
-                    if resp.status_code < 400:
-                        payload = resp.json() or {}
-                        vals = payload.get("data") if isinstance(payload, dict) else None
-                        if isinstance(vals, list) and vals:
-                            vars_map[name] = vals[0]
-                            logger.info("Grafana panel vars label_values name=%s value=%s", name, vals[0])
-                except Exception:
-                    continue
         series = []
         for t in targets:
             if not isinstance(t, dict):
