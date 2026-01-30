@@ -334,13 +334,18 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                         value = "|".join(str(v) for v in selected_vals if v)
             if name and value:
                 default_vars[name] = value
-        if default_vars and isinstance(vars_map, dict):
+        if not isinstance(vars_map, dict):
+            vars_map = {}
+        if default_vars:
             # Only fill missing vars to respect explicit overrides.
             for k, v in default_vars.items():
                 vars_map.setdefault(k, v)
             logger.info("Grafana panel vars resolved=%s", default_vars)
         elif template_list:
-            logger.info("Grafana panel vars templating_list=%s", [t.get("name") for t in template_list if isinstance(t, dict)])
+            logger.info(
+                "Grafana panel vars templating_list=%s",
+                [t.get("name") for t in template_list if isinstance(t, dict)],
+            )
         def _iter_panels(items):
             for item in items or []:
                 if not isinstance(item, dict):
@@ -369,11 +374,22 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             raise RuntimeError(f"Grafana panel {missing} not found")
         # Panel scoped vars can override defaults for repeated panels
         scoped_vars = panel.get("scopedVars") if isinstance(panel, dict) else None
-        if isinstance(scoped_vars, dict) and isinstance(vars_map, dict):
+        if isinstance(scoped_vars, dict):
             for k, v in scoped_vars.items():
                 if isinstance(v, dict) and v.get("value") is not None:
                     vars_map.setdefault(k, v.get("value"))
             logger.info("Grafana panel scoped_vars=%s", list(scoped_vars.keys()))
+        # Fallback for unresolved template variables: use regex match all.
+        unresolved = []
+        for item in template_list:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if name and name not in vars_map:
+                vars_map[name] = ".*"
+                unresolved.append(name)
+        if unresolved:
+            logger.info("Grafana panel vars fallback_unresolved=%s", unresolved)
         targets = panel.get("targets") or []
         if not isinstance(targets, list) or not targets:
             raise RuntimeError("Grafana panel has no targets")

@@ -81,6 +81,7 @@ def build_grafana_duration_analysis(
         )
         logger.info("Grafana Duration vars=%s", params.get("vars"))
         if isinstance(result.get("series"), list):
+            logger.info("Grafana Duration series_count=%s", len(result.get("series", [])))
             for s in result.get("series", []):
                 try:
                     if isinstance(s, dict):
