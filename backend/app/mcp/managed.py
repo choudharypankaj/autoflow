@@ -399,6 +399,39 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             default_ds = next((d for d in ds_list if d.get("isDefault")), None) or (ds_list[0] if ds_list else None)
             if isinstance(default_ds, dict) and default_ds.get("uid"):
                 ds_info = {"uid": default_ds.get("uid"), "type": default_ds.get("type", "prometheus")}
+        # Try to resolve template variables using label_values when current values are missing.
+        ds_uid_for_vars = ds_info.get("uid") if isinstance(ds_info, dict) else None
+        if ds_uid_for_vars and template_list:
+            for item in template_list:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if not name or name in vars_map:
+                    continue
+                query = str(item.get("query") or "").strip()
+                match = re.match(r"label_values\\(([^,\\)]+)?\\s*,?\\s*([^\\)]+)?\\)", query)
+                if not match:
+                    continue
+                metric_part = (match.group(1) or "").strip()
+                label_part = (match.group(2) or "").strip()
+                label = label_part or metric_part
+                metric = metric_part if label_part else ""
+                if not label:
+                    continue
+                params = {}
+                if metric:
+                    params["match[]"] = metric
+                values_url = f"{grafana_url}/api/datasources/proxy/uid/{ds_uid_for_vars}/api/v1/label/{label}/values"
+                try:
+                    resp = requests.get(values_url, headers=headers, params=params, timeout=10)
+                    if resp.status_code < 400:
+                        payload = resp.json() or {}
+                        vals = payload.get("data") if isinstance(payload, dict) else None
+                        if isinstance(vals, list) and vals:
+                            vars_map[name] = vals[0]
+                            logger.info("Grafana panel vars label_values name=%s value=%s", name, vals[0])
+                except Exception:
+                    continue
         series = []
         for t in targets:
             if not isinstance(t, dict):
