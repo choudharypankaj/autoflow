@@ -191,6 +191,11 @@ mcp:
     data_type: str
     description: "Grafana dashboard title for panel listing."
     client: false
+  mcp_grafana_storage_panel_id:
+    default: 100
+    data_type: int
+    description: "Grafana panel id for Storage capacity graph."
+    client: false
   mcp_grafana_duration_panel_id:
     default: 80
     data_type: int
