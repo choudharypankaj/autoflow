@@ -379,17 +379,15 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                 if isinstance(v, dict) and v.get("value") is not None:
                     vars_map.setdefault(k, v.get("value"))
             logger.info("Grafana panel scoped_vars=%s", list(scoped_vars.keys()))
-        # Fallback for unresolved template variables: use regex match all.
         unresolved = []
         for item in template_list:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("name") or "").strip()
             if name and name not in vars_map:
-                vars_map[name] = ".*"
                 unresolved.append(name)
         if unresolved:
-            logger.info("Grafana panel vars fallback_unresolved=%s", unresolved)
+            logger.info("Grafana panel vars unresolved=%s", unresolved)
         targets = panel.get("targets") or []
         if not isinstance(targets, list) or not targets:
             raise RuntimeError("Grafana panel has no targets")
