@@ -301,12 +301,16 @@ def build_grafana_tidb_metrics_analysis(
     if not panels:
         return "Grafana TiDB metrics:\n\n- Grafana panels not synced; sync dashboards and panels first."
 
-    latency_panel = _pick_panel_entry(panels, dashboard_title_pattern=r"\btidb\b", panel_title_pattern=r"latenc")
+    summary_panel = _pick_panel_entry(
+        panels,
+        dashboard_title_pattern=r"\btidb\b",
+        panel_title_pattern=r"query\s*summary",
+    )
     cpu_panel = _pick_panel_entry(panels, dashboard_title_pattern=r"\btidb\b", panel_title_pattern=r"\bcpu\b")
 
     vars_map = _build_grafana_vars(cluster_hint)
     metrics = []
-    for label, panel in [("Latency", latency_panel), ("CPU", cpu_panel)]:
+    for label, panel in [("Query summary", summary_panel), ("CPU", cpu_panel)]:
         if not panel:
             metrics.append(f"{label}:\n- No matching panel found.")
             continue
