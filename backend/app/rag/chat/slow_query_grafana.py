@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -59,6 +58,40 @@ def _extract_series_values(series: list) -> list[float]:
     return values
 
 
+def _extract_series_values_from_entry(entry: dict) -> list[float]:
+    values = []
+    if not isinstance(entry, dict):
+        return values
+    data = entry.get("data") or entry
+    result_items = None
+    if isinstance(data, dict):
+        if isinstance(data.get("result"), list):
+            result_items = data.get("result")
+        elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("result"), list):
+            result_items = data["data"].get("result")
+    if not isinstance(result_items, list):
+        return values
+    for item in result_items:
+        if not isinstance(item, dict):
+            continue
+        vals = item.get("values")
+        if isinstance(vals, list):
+            for v in vals:
+                if isinstance(v, (list, tuple)) and len(v) >= 2:
+                    try:
+                        values.append(float(v[1]))
+                    except Exception:
+                        continue
+        else:
+            single = item.get("value")
+            if isinstance(single, (list, tuple)) and len(single) >= 2:
+                try:
+                    values.append(float(single[1]))
+                except Exception:
+                    continue
+    return values
+
+
 def _build_grafana_vars(cluster_hint: str | None) -> dict:
     vars_map = dict(getattr(SiteSetting, "mcp_grafana_vars", None) or {})
     if not cluster_hint:
@@ -77,10 +110,119 @@ def _build_grafana_vars(cluster_hint: str | None) -> dict:
     return vars_map
 
 
-def _summarize_panel_series(series: list) -> str:
+def _extract_series_values_by_label(series: list, label_key: str) -> dict[str, list[float]]:
+    values_by_label: dict[str, list[float]] = {}
+    for s in series:
+        if not isinstance(s, dict):
+            continue
+        data = s.get("data") or s
+        result_items = None
+        if isinstance(data, dict):
+            if isinstance(data.get("result"), list):
+                result_items = data.get("result")
+            elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("result"), list):
+                result_items = data["data"].get("result")
+        if not isinstance(result_items, list):
+            continue
+        for item in result_items:
+            if not isinstance(item, dict):
+                continue
+            metric = item.get("metric") if isinstance(item.get("metric"), dict) else {}
+            label = str(metric.get(label_key) or "").strip() if isinstance(metric, dict) else ""
+            if not label:
+                label = "unknown"
+            bucket = values_by_label.setdefault(label, [])
+            vals = item.get("values")
+            if isinstance(vals, list):
+                for v in vals:
+                    if isinstance(v, (list, tuple)) and len(v) >= 2:
+                        try:
+                            bucket.append(float(v[1]))
+                        except Exception:
+                            continue
+            else:
+                single = item.get("value")
+                if isinstance(single, (list, tuple)) and len(single) >= 2:
+                    try:
+                        bucket.append(float(single[1]))
+                    except Exception:
+                        continue
+    return values_by_label
+
+
+def _summarize_duration_series(series: list, targets: list | None) -> str:
     if not series:
         return "- No data points found."
-    return "```\n" + json.dumps(series, ensure_ascii=True) + "\n```"
+    if not isinstance(targets, list) or not targets:
+        values = _extract_series_values(series)
+        if not values:
+            return "- No data points found."
+        avg = sum(values) / len(values)
+        max_v = max(values)
+        return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+
+    quantile_re = re.compile(r"histogram_quantile\(\s*([0-9.]+)")
+    lines = []
+    for idx, target in enumerate(targets):
+        if idx >= len(series):
+            break
+        expr = str((target or {}).get("expr") or (target or {}).get("query") or "")
+        match = quantile_re.search(expr)
+        if not match:
+            continue
+        q = match.group(1)
+        label = q
+        if q == "0.95":
+            label = "P95"
+        elif q == "0.99":
+            label = "P99"
+        elif q == "0.999":
+            label = "P999"
+        values = _extract_series_values_from_entry(series[idx])
+        if not values:
+            lines.append(f"- {label}: no data")
+            continue
+        avg = sum(values) / len(values)
+        max_v = max(values)
+        lines.append(f"- {label}: avg {avg:.6f}, max {max_v:.6f}")
+    if lines:
+        return "\n".join(lines)
+    values = _extract_series_values(series)
+    if not values:
+        return "- No data points found."
+    avg = sum(values) / len(values)
+    max_v = max(values)
+    return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+
+
+def _summarize_panel_series(series: list, *, per_instance: bool = False) -> str:
+    if per_instance:
+        values_by_instance = _extract_series_values_by_label(series, "instance")
+        if not values_by_instance:
+            values_by_instance = _extract_series_values_by_label(series, "tidb_instance")
+        if not values_by_instance:
+            values = _extract_series_values(series)
+            if not values:
+                return "- No data points found."
+            avg = sum(values) / len(values)
+            max_v = max(values)
+            return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+        lines = []
+        for instance, values in sorted(values_by_instance.items()):
+            if not values:
+                lines.append(f"- {instance}: no data")
+                continue
+            avg = sum(values) / len(values)
+            max_v = max(values)
+            lines.append(f"- {instance}: avg {avg:.6f}, max {max_v:.6f}")
+        return "\n".join(lines)
+
+    values = _extract_series_values(series)
+    if not values:
+        return "- No data points found."
+    avg = sum(values) / len(values)
+    max_v = max(values)
+    return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
 
 
 def _pick_panel_entry(
@@ -328,6 +470,8 @@ def build_grafana_tidb_metrics_analysis(
             "intervalMs": 60000,
             "vars": vars_map,
         }
+        if isinstance(panel, dict) and isinstance(panel.get("targets"), list):
+            params["targets"] = panel.get("targets")
         try:
             result = _run_grafana_tool(grafana_entry, grafana_name, tool, params)
         except Exception as e:
@@ -338,6 +482,13 @@ def build_grafana_tidb_metrics_analysis(
         if not isinstance(series, list) or not series:
             metrics.append(f"{label}:\n- No series data returned.")
             continue
-        metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_panel_series(series)}")
+        per_instance = label.lower().startswith("cpu")
+        if label.lower().startswith("duration"):
+            targets = panel.get("targets") if isinstance(panel, dict) else None
+            metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_duration_series(series, targets)}")
+        else:
+            metrics.append(
+                f"{label} (panel: {panel_title}):\n{_summarize_panel_series(series, per_instance=per_instance)}"
+            )
 
     return "Grafana TiDB metrics:\n\n" + "\n\n".join(metrics)
