@@ -9,10 +9,7 @@ from llama_index.core.base.llms.types import MessageRole
 from llama_index.core.prompts.rich import RichPromptTemplate
 
 from app.mcp.client import run_mcp_db_query
-from app.rag.chat.slow_query_grafana import (
-    build_grafana_duration_analysis,
-    build_grafana_tidb_metrics_analysis,
-)
+from app.rag.chat.slow_query_grafana import build_grafana_tidb_metrics_analysis
 from app.repositories import chat_repo
 from app.site_settings import SiteSetting
 
@@ -958,11 +955,13 @@ def maybe_run_db_slow_query(
                 ],
             )
 
-            grafana_sections = [
-                build_grafana_duration_analysis(start_ts, end_ts, grafana_host_name, logger, cluster_hint),
-                build_grafana_tidb_metrics_analysis(start_ts, end_ts, grafana_host_name, logger, cluster_hint),
-            ]
-            grafana_text = "\n\n".join(s for s in grafana_sections if s)
+            grafana_text = build_grafana_tidb_metrics_analysis(
+                start_ts,
+                end_ts,
+                grafana_host_name,
+                logger,
+                cluster_hint,
+            )
 
             recommendations: list[dict] = []
             if isinstance(top_digest, dict):
