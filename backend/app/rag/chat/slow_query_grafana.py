@@ -54,46 +54,6 @@ def _extract_series_values(series: list) -> list[float]:
     return values
 
 
-def _build_grafana_storage_capacity(
-    grafana_entry: dict,
-    grafana_name: str | None,
-    logger: logging.Logger,
-    start_ms: int,
-    end_ms: int,
-) -> str:
-    dashboard_uid = str(getattr(SiteSetting, "mcp_grafana_panels_uid", "") or "").strip()
-    panel_id = int(getattr(SiteSetting, "mcp_grafana_storage_panel_id", 0) or 0)
-    if not dashboard_uid or not panel_id:
-        return ""
-    params = {
-        "uid": dashboard_uid,
-        "panel_id": panel_id,
-        "panel_title": "Storage capacity",
-        "from": start_ms,
-        "to": end_ms,
-        "intervalMs": 60000,
-        "vars": getattr(SiteSetting, "mcp_grafana_vars", None) or {},
-    }
-    try:
-        result = _run_grafana_tool(grafana_entry, grafana_name, "grafana_panel_query_range", params)
-    except Exception as e:
-        logger.exception("Grafana storage capacity query failed: %s", e)
-        return f"Grafana Storage capacity:\n\n- Grafana panel query failed: {e}"
-    series = result.get("series") if isinstance(result, dict) else None
-    if not isinstance(series, list) or not series:
-        return "Grafana Storage capacity:\n\n- No series data returned."
-    values = _extract_series_values(series)
-    if not values:
-        return "Grafana Storage capacity:\n\n- No data points found."
-    avg = sum(values) / len(values)
-    max_v = max(values)
-    return (
-        "Grafana Storage capacity:\n\n"
-        f"- avg: {avg:.6f}\n"
-        f"- max: {max_v:.6f}\n"
-        f"- points: {len(values)}"
-    )
-
 def build_grafana_duration_analysis(
     start_time: str,
     end_time: str,
@@ -180,31 +140,13 @@ def build_grafana_duration_analysis(
 
     values = _extract_series_values(series)
     if not values:
-        storage_text = _build_grafana_storage_capacity(
-            grafana_entry,
-            grafana_name,
-            logger,
-            start_ms,
-            end_ms,
-        )
-        if storage_text:
-            return "Grafana Duration analysis:\n\n- No data points found.\n\n" + storage_text
         return "Grafana Duration analysis:\n\n- No data points found."
     avg = sum(values) / len(values)
     max_v = max(values)
-    storage_text = _build_grafana_storage_capacity(
-        grafana_entry,
-        grafana_name,
-        logger,
-        start_ms,
-        end_ms,
-    )
     text = (
         "Grafana Duration analysis:\n\n"
         f"- avg: {avg:.6f}\n"
         f"- max: {max_v:.6f}\n"
         f"- points: {len(values)}"
     )
-    if storage_text:
-        text = f"{text}\n\n{storage_text}"
     return text
