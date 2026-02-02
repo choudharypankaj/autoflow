@@ -234,10 +234,11 @@ def _summarize_duration_series(series: list, targets: list | None) -> str:
     return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
 
 
-def _summarize_cpu_series(series: list, targets: list | None) -> str:
+def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Logger) -> str:
     if not series:
         return "- No data points found."
     if not isinstance(targets, list) or not targets:
+        logger.info("CPU metrics: targets missing; falling back to per-instance raw stats")
         return _summarize_panel_series(series, per_instance=True)
 
     quota_idx = None
@@ -250,21 +251,34 @@ def _summarize_cpu_series(series: list, targets: list | None) -> str:
             quota_idx = idx
         elif actual_idx is None:
             actual_idx = idx
+    logger.info(
+        "CPU metrics: targets=%s actual_idx=%s quota_idx=%s",
+        len(targets),
+        actual_idx,
+        quota_idx,
+    )
 
     if actual_idx is None:
         actual_idx = 0
     if actual_idx >= len(series):
+        logger.info(
+            "CPU metrics: actual_idx out of range actual_idx=%s series_len=%s",
+            actual_idx,
+            len(series),
+        )
         return "- No data points found."
 
     actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "instance")
     if not actual_by_instance:
         actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "tidb_instance")
+    logger.info("CPU metrics: actual_instances=%s", len(actual_by_instance))
 
     quota_by_instance: dict[str, list[float]] = {}
     if quota_idx is not None and quota_idx < len(series):
         quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "instance")
         if not quota_by_instance:
             quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "tidb_instance")
+    logger.info("CPU metrics: quota_instances=%s", len(quota_by_instance))
 
     if not actual_by_instance:
         return "- No data points found."
@@ -282,8 +296,24 @@ def _summarize_cpu_series(series: list, targets: list | None) -> str:
             if quota_max > 0:
                 avg_pct = avg / quota_max * 100.0
                 max_pct = max_v / quota_max * 100.0
+                logger.info(
+                    "CPU metrics: instance=%s avg=%s max=%s quota_max=%s avg_pct=%.2f max_pct=%.2f",
+                    instance,
+                    avg,
+                    max_v,
+                    quota_max,
+                    avg_pct,
+                    max_pct,
+                )
                 lines.append(f"- {instance}: avg {avg_pct:.2f}%, max {max_pct:.2f}%")
                 continue
+        logger.info(
+            "CPU metrics: instance=%s avg=%s max=%s quota_missing_or_zero=%s",
+            instance,
+            avg,
+            max_v,
+            not quota_vals or (max(quota_vals) if quota_vals else 0) <= 0,
+        )
         lines.append(f"- {instance}: avg {avg:.6f}, max {max_v:.6f}")
     return "\n".join(lines)
 
@@ -581,7 +611,9 @@ def build_grafana_tidb_metrics_analysis(
             metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_duration_series(series, targets)}")
         elif label.lower().startswith("cpu"):
             targets = panel.get("targets") if isinstance(panel, dict) else None
-            metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_cpu_series(series, targets)}")
+            metrics.append(
+                f"{label} (panel: {panel_title}):\n{_summarize_cpu_series(series, targets, logger)}"
+            )
         else:
             metrics.append(
                 f"{label} (panel: {panel_title}):\n{_summarize_panel_series(series, per_instance=per_instance)}"
