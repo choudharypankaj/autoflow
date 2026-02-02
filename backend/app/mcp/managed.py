@@ -382,6 +382,7 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
                 expr = expr.replace(f"${k}", str(v))
                 expr = expr.replace(f"${{{k}}}", str(v))
             raw_expr = expr
+            expr = expr.replace("[$__rate_interval]", "[30s]")
             expr = re.sub(r'tidb_cluster\s*=\s*"(?:[^"\\]|\\.)*"', 'tidb_cluster="tidb-cluster-basic"', expr)
             expr = re.sub(r'\s*,\s*k8s_cluster\s*=\s*"(?:[^"\\]|\\.)*"', "", expr)
             expr = re.sub(r'k8s_cluster\s*=\s*"(?:[^"\\]|\\.)*"\s*,\s*', "", expr)
