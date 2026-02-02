@@ -334,6 +334,34 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             raise RuntimeError(f"Grafana panel {missing} not found")
         targets = panel.get("targets") or []
         if not isinstance(targets, list) or not targets:
+            lib_uid = None
+            lib = panel.get("libraryPanel")
+            if isinstance(lib, dict):
+                lib_uid = lib.get("uid")
+            lib_uid = lib_uid or panel.get("libraryPanelUid")
+            if lib_uid:
+                lib_uid = str(lib_uid).strip()
+            if lib_uid:
+                lib_resp = requests.get(
+                    grafana_url + f"/api/library-elements/{lib_uid}",
+                    headers=headers,
+                    timeout=10,
+                )
+                if lib_resp.status_code == 404:
+                    lib_resp = requests.get(
+                        grafana_url + f"/api/library-elements/uid/{lib_uid}",
+                        headers=headers,
+                        timeout=10,
+                    )
+                if lib_resp.status_code < 400:
+                    lib_payload = lib_resp.json() or {}
+                    lib_model = lib_payload.get("model") or {}
+                    lib_targets = lib_model.get("targets") or []
+                    if isinstance(lib_targets, list) and lib_targets:
+                        targets = lib_targets
+        if (not isinstance(targets, list) or not targets) and isinstance(params.get("targets"), list):
+            targets = params.get("targets") or []
+        if not isinstance(targets, list) or not targets:
             raise RuntimeError("Grafana panel has no targets")
         # Resolve datasource uid for each target
         ds_info = None
