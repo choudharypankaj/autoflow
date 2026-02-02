@@ -353,6 +353,13 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             for k, v in (vars_map or {}).items():
                 expr = expr.replace(f"${k}", str(v))
                 expr = expr.replace(f"${{{k}}}", str(v))
+            raw_expr = expr
+            expr = re.sub(r'tidb_cluster\s*=\s*"(?:[^"\\]|\\.)*"', 'tidb_cluster="tidb-cluster-basic"', expr)
+            expr = re.sub(r'\s*,\s*k8s_cluster\s*=\s*"(?:[^"\\]|\\.)*"', "", expr)
+            expr = re.sub(r'k8s_cluster\s*=\s*"(?:[^"\\]|\\.)*"\s*,\s*', "", expr)
+            expr = re.sub(r'instance\s*=~\s*"(?:[^"\\]|\\.)*"', 'instance=~".*"', expr)
+            if expr != raw_expr:
+                logger.info("Grafana panel query_range expr_rewrite raw=%s rewritten=%s", raw_expr, expr)
             ds_uid = None
             if isinstance(t.get("datasource"), dict):
                 ds_uid = t["datasource"].get("uid")
