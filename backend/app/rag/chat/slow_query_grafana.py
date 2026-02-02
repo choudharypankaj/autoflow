@@ -131,6 +131,28 @@ def _extract_entry_values_by_label(entry: dict, label_key: str) -> dict[str, lis
     return values_by_label
 
 
+def _extract_entry_values_by_best_label(
+    entry: dict,
+    candidate_keys: list[str],
+    logger: logging.Logger,
+    context: str,
+) -> tuple[str | None, dict[str, list[float]]]:
+    best_key = None
+    best_values: dict[str, list[float]] = {}
+    for key in candidate_keys:
+        values = _extract_entry_values_by_label(entry, key)
+        if len(values) > len(best_values):
+            best_values = values
+            best_key = key
+    logger.info(
+        "%s metrics: best_label_key=%s distinct=%s",
+        context,
+        best_key,
+        len(best_values),
+    )
+    return best_key, best_values
+
+
 def _build_grafana_vars(cluster_hint: str | None) -> dict:
     vars_map = dict(getattr(SiteSetting, "mcp_grafana_vars", None) or {})
     if not cluster_hint:
@@ -273,25 +295,32 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
         )
         return "- No data points found."
 
-    actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "instance")
-    if not actual_by_instance:
-        actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "tidb_instance")
+    _, actual_by_instance = _extract_entry_values_by_best_label(
+        series[actual_idx],
+        ["instance", "tidb_instance", "pod", "pod_name", "instance_addr"],
+        logger,
+        "CPU actual",
+    )
     logger.info("CPU metrics: actual_instances=%s", len(actual_by_instance))
 
     quota_by_instance: dict[str, list[float]] = {}
     if quota_idx is not None and quota_idx < len(series):
-        quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "instance")
-        if not quota_by_instance:
-            quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "tidb_instance")
+        _, quota_by_instance = _extract_entry_values_by_best_label(
+            series[quota_idx],
+            ["instance", "tidb_instance", "pod", "pod_name", "instance_addr"],
+            logger,
+            "CPU quota",
+        )
     logger.info("CPU metrics: quota_instances=%s", len(quota_by_instance))
 
     if not actual_by_instance:
         return "- No data points found."
 
     lines = []
+    table_rows = []
     for instance, values in sorted(actual_by_instance.items()):
         if not values:
-            lines.append(f"- {instance}: no data")
+            table_rows.append((instance, "-", "-", "-", "-"))
             continue
         avg = sum(values) / len(values)
         max_v = max(values)
@@ -310,7 +339,7 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
                     avg_pct,
                     max_pct,
                 )
-                lines.append(f"- {instance}: avg {avg_pct:.2f}%, max {max_pct:.2f}%")
+                table_rows.append((instance, f"{avg_pct:.2f}%", f"{max_pct:.2f}%", f"{avg:.6f}", f"{quota_max:.2f}"))
                 continue
         logger.info(
             "CPU metrics: instance=%s avg=%s max=%s quota_missing_or_zero=%s",
@@ -319,8 +348,14 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
             max_v,
             not quota_vals or (max(quota_vals) if quota_vals else 0) <= 0,
         )
-        lines.append(f"- {instance}: avg {avg:.6f}, max {max_v:.6f}")
-    return "\n".join(lines)
+        table_rows.append((instance, "-", "-", f"{avg:.6f}", "-"))
+
+    if not table_rows:
+        return "- No data points found."
+    header = "| instance | avg_pct | max_pct | avg | quota_max |"
+    sep = "|---|---:|---:|---:|---:|"
+    body = "\n".join(f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |" for r in table_rows)
+    return "\n".join([header, sep, body])
 
 
 def _summarize_panel_series(series: list, *, per_instance: bool = False) -> str:
