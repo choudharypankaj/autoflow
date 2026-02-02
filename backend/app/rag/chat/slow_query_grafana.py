@@ -246,13 +246,13 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
     for idx, target in enumerate(targets):
         if not isinstance(target, dict):
             continue
-        legend = str(target.get("legendFormat") or "").strip().lower()
+        legend = str(target.get("legendFormat") or target.get("legend") or "").strip().lower()
         expr = str(target.get("expr") or target.get("query") or "").strip().lower()
         logger.info("CPU metrics: target[%s] legend=%s expr=%s", idx, legend, expr)
         if (
             "quota-" in legend
             and ("{{instance}}" in legend or "${instance}" in legend or "$instance" in legend)
-        ) or ("quota" in legend):
+        ) or ("quota" in legend) or ("maxprocs" in expr):
             quota_idx = idx
         elif actual_idx is None:
             actual_idx = idx
