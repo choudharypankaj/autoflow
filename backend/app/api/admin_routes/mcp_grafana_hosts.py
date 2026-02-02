@@ -270,6 +270,42 @@ def list_grafana_panels(
     return panels
 
 
+@router.post("/admin/mcp/grafana/sync", response_model=Dict[str, int])
+def sync_grafana_metadata(
+    session: SessionDep,
+    user: CurrentSuperuserDep,
+    host: Optional[str] = Query(default=None, description="Optional Grafana host name to sync"),
+) -> Dict[str, int]:
+    hosts = _get_grafana_hosts()
+    if host:
+        hosts = [
+            h
+            for h in hosts
+            if str((h or {}).get("name", "")).strip().lower() == host.strip().lower()
+        ]
+    if not hosts:
+        raise HTTPException(status_code=400, detail="No matching Grafana host found to sync.")
+    total_dashboards = 0
+    total_panels = 0
+    for h in hosts:
+        dashboards = _sync_grafana_dashboards(
+            session,
+            host_name=str((h or {}).get("name", "")).strip(),
+            grafana_url=str((h or {}).get("grafana_url", "")).strip(),
+            api_key=str((h or {}).get("grafana_api_key", "")).strip(),
+        )
+        panels = _sync_grafana_panels(
+            session,
+            host_name=str((h or {}).get("name", "")).strip(),
+            grafana_url=str((h or {}).get("grafana_url", "")).strip(),
+            api_key=str((h or {}).get("grafana_api_key", "")).strip(),
+            dashboards=dashboards,
+        )
+        total_dashboards += len(dashboards)
+        total_panels += len(panels)
+    return {"dashboards": total_dashboards, "panels": total_panels}
+
+
 @router.post("/admin/mcp/grafana/hosts", response_model=GrafanaMCPHostItem)
 def create_grafana_host(
     session: SessionDep, user: CurrentSuperuserDep, req: CreateGrafanaMCPHostRequest
