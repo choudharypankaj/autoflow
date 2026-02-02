@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from datetime import UTC, datetime
@@ -77,12 +78,9 @@ def _build_grafana_vars(cluster_hint: str | None) -> dict:
 
 
 def _summarize_panel_series(series: list) -> str:
-    values = _extract_series_values(series)
-    if not values:
+    if not series:
         return "- No data points found."
-    avg = sum(values) / len(values)
-    max_v = max(values)
-    return f"- avg: {avg:.6f}\n- max: {max_v:.6f}\n- points: {len(values)}"
+    return "```\n" + json.dumps(series, ensure_ascii=True) + "\n```"
 
 
 def _pick_panel_entry(
