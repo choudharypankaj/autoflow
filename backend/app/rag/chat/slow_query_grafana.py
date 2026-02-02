@@ -1,6 +1,9 @@
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Any
+
+import requests
 
 from app.mcp.client import run_mcp_tool, run_mcp_tool_url
 from app.site_settings import SiteSetting
@@ -106,6 +109,7 @@ def build_grafana_tidb_metrics_analysis(
     grafana_host: str | None,
     logger: logging.Logger,
     cluster_hint: str | None = None,
+    session: Any | None = None,
 ) -> str:
     SiteSetting.update_db_cache()
     grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
@@ -130,9 +134,170 @@ def build_grafana_tidb_metrics_analysis(
     except Exception:
         return "Grafana TiDB metrics:\n\n- Invalid time window; expected 'YYYY-MM-DD HH:MM:SS' UTC."
 
+    def _coerce_panel_datasource(value: object) -> dict:
+        if isinstance(value, dict):
+            return {
+                "datasource_uid": str(value.get("uid") or ""),
+                "datasource_name": str(value.get("name") or ""),
+                "datasource_type": str(value.get("type") or ""),
+            }
+        if isinstance(value, str):
+            return {
+                "datasource_uid": "",
+                "datasource_name": value,
+                "datasource_type": "",
+            }
+        return {"datasource_uid": "", "datasource_name": "", "datasource_type": ""}
+
+    def _coerce_target_datasource(value: object) -> dict:
+        if isinstance(value, dict):
+            return {
+                "datasource_uid": str(value.get("uid") or ""),
+                "datasource_name": str(value.get("name") or ""),
+                "datasource_type": str(value.get("type") or ""),
+            }
+        if isinstance(value, str):
+            return {"datasource_uid": "", "datasource_name": value, "datasource_type": ""}
+        return {"datasource_uid": "", "datasource_name": "", "datasource_type": ""}
+
+    def _simplify_targets(items: list) -> list[dict]:
+        simplified = []
+        for target in items or []:
+            if not isinstance(target, dict):
+                continue
+            target_ds = _coerce_target_datasource(target.get("datasource"))
+            simplified.append(
+                {
+                    "ref_id": target.get("refId", ""),
+                    "expr": target.get("expr", ""),
+                    "query": target.get("query", ""),
+                    "legend": target.get("legendFormat", ""),
+                    "format": target.get("format", ""),
+                    "interval": target.get("interval", ""),
+                    "datasource_uid": target_ds.get("datasource_uid", ""),
+                    "datasource_name": target_ds.get("datasource_name", ""),
+                    "datasource_type": target_ds.get("datasource_type", ""),
+                }
+            )
+        return simplified
+
+    def _iter_panels(items: list) -> list[dict]:
+        rows = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            rows.append(item)
+            if item.get("type") == "row":
+                rows.extend([p for p in item.get("panels") or [] if isinstance(p, dict)])
+        return rows
+
+    def _fetch_dashboards(entry: dict, name: str | None) -> list[dict]:
+        base = str((entry or {}).get("grafana_url", "")).strip().rstrip("/")
+        api_key = str((entry or {}).get("grafana_api_key", "")).strip()
+        if not base or not api_key:
+            return []
+        try:
+            resp = requests.get(
+                base + "/api/search",
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"type": "dash-db"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.exception("Grafana list dashboards failed: host=%s error=%s", name, e)
+            return []
+        if resp.status_code >= 400:
+            logger.info("Grafana list dashboards failed: host=%s status=%s", name, resp.status_code)
+            return []
+        items = resp.json() or []
+        dashboards = []
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            dashboards.append(
+                {
+                    "host": name or "",
+                    "uid": str(it.get("uid") or ""),
+                    "title": str(it.get("title") or ""),
+                    "folder": str(it.get("folderTitle") or ""),
+                    "uri": str(it.get("uri") or ""),
+                    "url": str(it.get("url") or ""),
+                }
+            )
+        return dashboards
+
+    def _fetch_panels(entry: dict, name: str | None, dashboards: list[dict]) -> list[dict]:
+        base = str((entry or {}).get("grafana_url", "")).strip().rstrip("/")
+        api_key = str((entry or {}).get("grafana_api_key", "")).strip()
+        if not base or not api_key:
+            return []
+        panels = []
+        for d in dashboards:
+            uid = str((d or {}).get("uid") or "")
+            title = str((d or {}).get("title") or "")
+            if not uid:
+                continue
+            try:
+                resp = requests.get(
+                    base + f"/api/dashboards/uid/{uid}",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=10,
+                )
+            except Exception as e:
+                logger.exception("Grafana fetch dashboard failed: host=%s uid=%s error=%s", name, uid, e)
+                continue
+            if resp.status_code >= 400:
+                logger.info("Grafana fetch dashboard failed: host=%s uid=%s status=%s", name, uid, resp.status_code)
+                continue
+            payload = resp.json() or {}
+            dashboard = payload.get("dashboard") or {}
+            items = _iter_panels(dashboard.get("panels") or [])
+            dashboard_ds = _coerce_panel_datasource(dashboard.get("datasource"))
+            for p in items:
+                panel_ds = _coerce_panel_datasource(p.get("datasource") or dashboard.get("datasource"))
+                panels.append(
+                    {
+                        "host": name or "",
+                        "dashboard_uid": uid,
+                        "dashboard_title": title,
+                        "panel_id": p.get("id", ""),
+                        "panel_title": p.get("title", ""),
+                        "panel_type": p.get("type", ""),
+                        "datasource_uid": panel_ds.get("datasource_uid", "") or dashboard_ds.get("datasource_uid", ""),
+                        "datasource_name": panel_ds.get("datasource_name", "") or dashboard_ds.get("datasource_name", ""),
+                        "datasource_type": panel_ds.get("datasource_type", "") or dashboard_ds.get("datasource_type", ""),
+                        "targets": _simplify_targets(p.get("targets") or []),
+                    }
+                )
+        return panels
+
+    def _maybe_sync_panels() -> list[dict]:
+        dashboards = _fetch_dashboards(grafana_entry, grafana_name)
+        panels_fetched = _fetch_panels(grafana_entry, grafana_name, dashboards)
+        if session is not None and grafana_name:
+            try:
+                SiteSetting.update_db_cache()
+                existing_dash = getattr(SiteSetting, "mcp_grafana_dashboards", None) or []
+                kept_dash = [
+                    d for d in existing_dash
+                    if str((d or {}).get("host", "")).strip().lower() != grafana_name.strip().lower()
+                ]
+                SiteSetting.update_setting(session, "mcp_grafana_dashboards", kept_dash + dashboards)
+                existing_panels = getattr(SiteSetting, "mcp_grafana_panels", None) or []
+                kept_panels = [
+                    p for p in existing_panels
+                    if str((p or {}).get("host", "")).strip().lower() != grafana_name.strip().lower()
+                ]
+                SiteSetting.update_setting(session, "mcp_grafana_panels", kept_panels + panels_fetched)
+            except Exception:
+                logger.exception("Grafana on-demand sync failed to persist: host=%s", grafana_name)
+        return panels_fetched
+
     panels = getattr(SiteSetting, "mcp_grafana_panels", None) or []
     if grafana_name:
         panels = [p for p in panels if str((p or {}).get("host", "")).strip().lower() == grafana_name.strip().lower()]
+    if not panels:
+        panels = _maybe_sync_panels()
     if not panels:
         return "Grafana TiDB metrics:\n\n- Grafana panels not synced; sync dashboards and panels first."
 

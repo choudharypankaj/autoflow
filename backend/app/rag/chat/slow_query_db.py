@@ -961,6 +961,7 @@ def maybe_run_db_slow_query(
                 grafana_host_name,
                 logger,
                 cluster_hint,
+                chat_flow.db_session,
             )
 
             recommendations: list[dict] = []
