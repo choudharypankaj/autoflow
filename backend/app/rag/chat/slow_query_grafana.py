@@ -352,9 +352,9 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
 
     if not table_rows:
         return "- No data points found."
-    header = "| instance | avg_pct | max_pct | avg | quota_max |"
-    sep = "|---|---:|---:|---:|---:|"
-    body = "\n".join(f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |" for r in table_rows)
+    header = "| instance | avg_pct | max_pct |"
+    sep = "|---|---:|---:|"
+    body = "\n".join(f"| {r[0]} | {r[1]} | {r[2]} |" for r in table_rows)
     return "\n".join([header, sep, body])
 
 
