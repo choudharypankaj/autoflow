@@ -92,6 +92,45 @@ def _extract_series_values_from_entry(entry: dict) -> list[float]:
     return values
 
 
+def _extract_entry_values_by_label(entry: dict, label_key: str) -> dict[str, list[float]]:
+    values_by_label: dict[str, list[float]] = {}
+    if not isinstance(entry, dict):
+        return values_by_label
+    data = entry.get("data") or entry
+    result_items = None
+    if isinstance(data, dict):
+        if isinstance(data.get("result"), list):
+            result_items = data.get("result")
+        elif isinstance(data.get("data"), dict) and isinstance(data["data"].get("result"), list):
+            result_items = data["data"].get("result")
+    if not isinstance(result_items, list):
+        return values_by_label
+    for item in result_items:
+        if not isinstance(item, dict):
+            continue
+        metric = item.get("metric") if isinstance(item.get("metric"), dict) else {}
+        label = str(metric.get(label_key) or "").strip() if isinstance(metric, dict) else ""
+        if not label:
+            label = "unknown"
+        bucket = values_by_label.setdefault(label, [])
+        vals = item.get("values")
+        if isinstance(vals, list):
+            for v in vals:
+                if isinstance(v, (list, tuple)) and len(v) >= 2:
+                    try:
+                        bucket.append(float(v[1]))
+                    except Exception:
+                        continue
+        else:
+            single = item.get("value")
+            if isinstance(single, (list, tuple)) and len(single) >= 2:
+                try:
+                    bucket.append(float(single[1]))
+                except Exception:
+                    continue
+    return values_by_label
+
+
 def _build_grafana_vars(cluster_hint: str | None) -> dict:
     vars_map = dict(getattr(SiteSetting, "mcp_grafana_vars", None) or {})
     if not cluster_hint:
@@ -193,6 +232,60 @@ def _summarize_duration_series(series: list, targets: list | None) -> str:
     avg = sum(values) / len(values)
     max_v = max(values)
     return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+
+
+def _summarize_cpu_series(series: list, targets: list | None) -> str:
+    if not series:
+        return "- No data points found."
+    if not isinstance(targets, list) or not targets:
+        return _summarize_panel_series(series, per_instance=True)
+
+    quota_idx = None
+    actual_idx = None
+    for idx, target in enumerate(targets):
+        if not isinstance(target, dict):
+            continue
+        legend = str(target.get("legendFormat") or "").strip().lower()
+        if "quota-" in legend and "{{instance}}" in legend:
+            quota_idx = idx
+        elif actual_idx is None:
+            actual_idx = idx
+
+    if actual_idx is None:
+        actual_idx = 0
+    if actual_idx >= len(series):
+        return "- No data points found."
+
+    actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "instance")
+    if not actual_by_instance:
+        actual_by_instance = _extract_entry_values_by_label(series[actual_idx], "tidb_instance")
+
+    quota_by_instance: dict[str, list[float]] = {}
+    if quota_idx is not None and quota_idx < len(series):
+        quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "instance")
+        if not quota_by_instance:
+            quota_by_instance = _extract_entry_values_by_label(series[quota_idx], "tidb_instance")
+
+    if not actual_by_instance:
+        return "- No data points found."
+
+    lines = []
+    for instance, values in sorted(actual_by_instance.items()):
+        if not values:
+            lines.append(f"- {instance}: no data")
+            continue
+        avg = sum(values) / len(values)
+        max_v = max(values)
+        quota_vals = quota_by_instance.get(instance, [])
+        if quota_vals:
+            quota_max = max(quota_vals)
+            if quota_max > 0:
+                avg_pct = avg / quota_max * 100.0
+                max_pct = max_v / quota_max * 100.0
+                lines.append(f"- {instance}: avg {avg_pct:.2f}%, max {max_pct:.2f}%")
+                continue
+        lines.append(f"- {instance}: avg {avg:.6f}, max {max_v:.6f}")
+    return "\n".join(lines)
 
 
 def _summarize_panel_series(series: list, *, per_instance: bool = False) -> str:
@@ -486,6 +579,9 @@ def build_grafana_tidb_metrics_analysis(
         if label.lower().startswith("duration"):
             targets = panel.get("targets") if isinstance(panel, dict) else None
             metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_duration_series(series, targets)}")
+        elif label.lower().startswith("cpu"):
+            targets = panel.get("targets") if isinstance(panel, dict) else None
+            metrics.append(f"{label} (panel: {panel_title}):\n{_summarize_cpu_series(series, targets)}")
         else:
             metrics.append(
                 f"{label} (panel: {panel_title}):\n{_summarize_panel_series(series, per_instance=per_instance)}"
