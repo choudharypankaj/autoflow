@@ -348,6 +348,8 @@ def run_managed_mcp_grafana_tool(name: str, tool: str, params: Dict[str, Any]) -
             if not isinstance(t, dict):
                 continue
             expr = str(t.get("expr") or t.get("query") or "").strip()
+            if panel_id == 100 or panel_title == "storage capacity":
+                expr = 'sum(pd_cluster_status{tidb_cluster="tidb-cluster-basic",type="storage_capacity"})'
             if not expr:
                 continue
             for k, v in (vars_map or {}).items():
