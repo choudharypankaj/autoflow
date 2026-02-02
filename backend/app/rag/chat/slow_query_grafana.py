@@ -303,14 +303,14 @@ def build_grafana_tidb_metrics_analysis(
 
     summary_panel = _pick_panel_entry(
         panels,
-        dashboard_title_pattern=r"\btidb\b",
-        panel_title_pattern=r"query\s*summary",
+        dashboard_title_pattern=r"query\s*summary",
+        panel_title_pattern=r"\bduration\b",
     )
     cpu_panel = _pick_panel_entry(panels, dashboard_title_pattern=r"\btidb\b", panel_title_pattern=r"\bcpu\b")
 
     vars_map = _build_grafana_vars(cluster_hint)
     metrics = []
-    for label, panel in [("Query summary", summary_panel), ("CPU", cpu_panel)]:
+    for label, panel in [("Duration (Query Summary)", summary_panel), ("CPU", cpu_panel)]:
         if not panel:
             metrics.append(f"{label}:\n- No matching panel found.")
             continue
