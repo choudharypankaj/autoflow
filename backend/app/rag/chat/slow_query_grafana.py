@@ -218,9 +218,9 @@ def _summarize_duration_series(series: list, targets: list | None) -> str:
         values = _extract_series_values(series)
         if not values:
             return "- No data points found."
-        avg = sum(values) / len(values)
-        max_v = max(values)
-        return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+        avg = (sum(values) / len(values)) * 1000.0
+        max_v = max(values) * 1000.0
+        return f"- avg: {avg:.2f} ms\n- max: {max_v:.2f} ms"
 
     quantile_re = re.compile(r"histogram_quantile\(\s*([0-9.]+)")
     lines = []
@@ -243,17 +243,17 @@ def _summarize_duration_series(series: list, targets: list | None) -> str:
         if not values:
             lines.append(f"- {label}: no data")
             continue
-        avg = sum(values) / len(values)
-        max_v = max(values)
-        lines.append(f"- {label}: avg {avg:.6f}, max {max_v:.6f}")
+        avg = (sum(values) / len(values)) * 1000.0
+        max_v = max(values) * 1000.0
+        lines.append(f"- {label}: avg {avg:.2f} ms, max {max_v:.2f} ms")
     if lines:
         return "\n".join(lines)
     values = _extract_series_values(series)
     if not values:
         return "- No data points found."
-    avg = sum(values) / len(values)
-    max_v = max(values)
-    return f"- avg: {avg:.6f}\n- max: {max_v:.6f}"
+    avg = (sum(values) / len(values)) * 1000.0
+    max_v = max(values) * 1000.0
+    return f"- avg: {avg:.2f} ms\n- max: {max_v:.2f} ms"
 
 
 def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Logger) -> str:
@@ -318,6 +318,7 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
 
     lines = []
     table_rows = []
+    avg_pcts: list[float] = []
     for instance, values in sorted(actual_by_instance.items()):
         if not values:
             table_rows.append((instance, "-", "-", "-", "-"))
@@ -339,6 +340,7 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
                     avg_pct,
                     max_pct,
                 )
+                avg_pcts.append(avg_pct)
                 table_rows.append((instance, f"{avg_pct:.2f}%", f"{max_pct:.2f}%", f"{avg:.6f}", f"{quota_max:.2f}"))
                 continue
         logger.info(
@@ -352,6 +354,12 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
 
     if not table_rows:
         return "- No data points found."
+    if avg_pcts:
+        overall_avg = sum(avg_pcts) / len(avg_pcts)
+        threshold = overall_avg + 5.0
+        table_rows = [r for r in table_rows if r[1] != "-" and float(r[1].rstrip("%")) > threshold]
+        if not table_rows:
+            return "- No instances above avg + 5%."
     header = "| instance | avg_pct | max_pct |"
     sep = "|---|---:|---:|"
     body = "\n".join(f"| {r[0]} | {r[1]} | {r[2]} |" for r in table_rows)
