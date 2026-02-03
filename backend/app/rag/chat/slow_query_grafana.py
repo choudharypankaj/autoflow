@@ -318,7 +318,7 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
 
     lines = []
     table_rows = []
-    avg_pcts: list[float] = []
+    all_pcts: list[float] = []
     for instance, values in sorted(actual_by_instance.items()):
         if not values:
             table_rows.append((instance, "-", "-", "-", "-"))
@@ -329,8 +329,9 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
         if quota_vals:
             quota_max = max(quota_vals)
             if quota_max > 0:
-                avg_pct = avg / quota_max * 100.0
-                max_pct = max_v / quota_max * 100.0
+                pct_values = [(v / quota_max * 100.0) for v in values]
+                avg_pct = sum(pct_values) / len(pct_values)
+                max_pct = max(pct_values)
                 logger.info(
                     "CPU metrics: instance=%s avg=%s max=%s quota_max=%s avg_pct=%.2f max_pct=%.2f",
                     instance,
@@ -340,8 +341,10 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
                     avg_pct,
                     max_pct,
                 )
-                avg_pcts.append(avg_pct)
-                table_rows.append((instance, f"{avg_pct:.2f}%", f"{max_pct:.2f}%", f"{avg:.6f}", f"{quota_max:.2f}"))
+                all_pcts.extend(pct_values)
+                table_rows.append(
+                    (instance, f"{avg_pct:.2f}%", f"{max_pct:.2f}%", f"{avg:.6f}", f"{quota_max:.2f}", pct_values)
+                )
                 continue
         logger.info(
             "CPU metrics: instance=%s avg=%s max=%s quota_missing_or_zero=%s",
@@ -350,14 +353,21 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
             max_v,
             not quota_vals or (max(quota_vals) if quota_vals else 0) <= 0,
         )
-        table_rows.append((instance, "-", "-", f"{avg:.6f}", "-"))
+        table_rows.append((instance, "-", "-", f"{avg:.6f}", "-", []))
 
     if not table_rows:
         return "- No data points found."
-    if avg_pcts:
-        overall_avg = sum(avg_pcts) / len(avg_pcts)
+    if all_pcts:
+        overall_avg = sum(all_pcts) / len(all_pcts)
         threshold = overall_avg + 5.0
-        table_rows = [r for r in table_rows if r[1] != "-" and float(r[1].rstrip("%")) > threshold]
+        filtered = []
+        for r in table_rows:
+            if r[1] == "-":
+                continue
+            pct_values = r[5] if len(r) > 5 else []
+            if pct_values and max(pct_values) > threshold:
+                filtered.append(r)
+        table_rows = filtered
         if not table_rows:
             return "- No instances above avg + 5%."
     header = "| instance | avg_pct | max_pct |"
