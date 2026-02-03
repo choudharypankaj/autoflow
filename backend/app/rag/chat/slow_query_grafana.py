@@ -365,8 +365,13 @@ def _summarize_cpu_series(series: list, targets: list | None, logger: logging.Lo
             if r[1] == "-":
                 continue
             pct_values = r[5] if len(r) > 5 else []
-            if pct_values and max(pct_values) > threshold:
-                filtered.append(r)
+            if pct_values:
+                rolling_avgs = [
+                    (pct_values[i] + pct_values[i + 1]) / 2.0
+                    for i in range(len(pct_values) - 1)
+                ]
+                if rolling_avgs and max(rolling_avgs) > threshold:
+                    filtered.append(r)
         table_rows = filtered
         if not table_rows:
             return "- No instances above avg + 5%."
