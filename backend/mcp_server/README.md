@@ -55,8 +55,6 @@ uv run python -m app.mcp_server_prometheus
 
 The autoflow backend uses the Prometheus **HTTP API** directly (no MCP server required) for slow-query metrics. The Prometheus MCP server is provided for use with MCP hosts (e.g. Claude Desktop, Cursor) that want to query Prometheus via tools.
 
-**Using Claude for DB health / Prometheus analysis in chat:** Configure **Claude CLI** as one of the LLM models in the Admin UI (same place as OpenAI, Anthropic, Ollama). Select it as the LLM for the chat engine. The backend will invoke the Claude CLI on the host; use the same authorization as the CLI (install the CLI and run `claude auth login`). No API keys are stored in the app for this provider.
-
 
 ---
 

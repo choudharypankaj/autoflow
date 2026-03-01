@@ -155,7 +155,7 @@ class ChatEngineConfig(BaseModel):
         )
 
     def get_fast_dspy_lm(self, session: Session) -> Optional[dspy.LM]:
-        """Return a DSPy LM for fast/retrieval use, or None if none of the configured LLMs support DSPy (e.g. when only Claude CLI is configured)."""
+        """Return a DSPy LM for fast/retrieval use, or None if none of the configured LLMs support DSPy."""
         for llama_llm in (
             self.get_fast_llama_llm(session),
             self.get_llama_llm(session),

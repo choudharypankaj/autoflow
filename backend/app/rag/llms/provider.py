@@ -15,7 +15,6 @@ class LLMProvider(str, enum.Enum):
     OLLAMA = "ollama"
     GITEEAI = "giteeai"
     AZURE_OPENAI = "azure_openai"
-    CLAUDE_CLI = "claude_cli"
 
 
 class LLMProviderOption(BaseModel):
@@ -180,25 +179,5 @@ llm_provider_options: List[LLMProviderOption] = [
         credentials_description="The API key of Azure OpenAI",
         credentials_type="str",
         default_credentials="****",
-    ),
-    LLMProviderOption(
-        provider=LLMProvider.CLAUDE_CLI,
-        provider_display_name="Claude CLI",
-        provider_description="Use the Claude CLI installed on the host. The backend invokes the CLI; authorization uses the same credentials as the CLI (e.g. after running `claude auth login`). No API key is stored in the app.",
-        provider_url="https://claude.ai/docs/cli",
-        default_llm_model="",
-        llm_model_description="Optional: agent ID for `claude agent run <id>`. Leave empty to use default `claude` behavior (e.g. `claude run`).",
-        default_config={
-            "cli_path": "claude",
-            "agent_id": "",
-        },
-        config_description=(
-            "`cli_path`: path or command name for the Claude CLI (default: `claude`). "
-            "`agent_id`: optional agent ID; if set, uses `claude agent run <agent_id>` instead of `claude run`."
-        ),
-        credentials_display_name="CLI credentials",
-        credentials_description="No API key is used. Install the Claude CLI on the host and run `claude auth login` (or equivalent). The backend runs the CLI with the same environment; the CLI uses its own stored credentials.",
-        credentials_type="str",
-        default_credentials="",
     ),
 ]

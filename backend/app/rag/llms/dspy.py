@@ -81,11 +81,6 @@ def get_dspy_lm_by_llama_llm(llama_llm: BaseLLM) -> dspy.LM:
                 api_version=llama_llm.api_version,
                 deployment_id=llama_llm.engine,
             )
-        case "ClaudeCLILLM":
-            raise ValueError(
-                "Claude CLI does not support DSPy. Use it as the main chat LLM only; "
-                "do not set it as the fast LLM for retrieval or use it in flows that require DSPy."
-            )
         case _:
             raise ValueError(f"Got unknown LLM provider: {llama_llm.class_name()}")
 
