@@ -1,6 +1,6 @@
 """
-Agent loop for database health / slow-query / Prometheus RCA.
-Replaces the fixed pipeline: the agent chooses which tools to call and synthesizes the answer.
+Agent loop for database health / Prometheus-only analysis.
+Uses only Prometheus metrics (list metrics, metadata, run_promql); no SQL/slow-query tools.
 """
 import json
 import logging
@@ -9,11 +9,7 @@ from typing import Any, Optional
 
 from llama_index.core import PromptTemplate
 
-from app.mcp.client import run_mcp_db_query
-from app.rag.chat.slow_query_db import (
-    normalize_rows,
-    parse_time_window_from_question,
-)
+from app.rag.chat.slow_query_db import parse_time_window_from_question
 from app.rag.chat.slow_query_prometheus import (
     get_prometheus_metadata,
     list_prometheus_metric_names,
@@ -23,12 +19,11 @@ from app.site_settings import SiteSetting
 
 logger = logging.getLogger(__name__)
 
-DB_HEALTH_AGENT_SYSTEM = """You are a TiDB database health and performance assistant. You have access to tools to run SQL queries and to query Prometheus. Use logical reasoning to decide which metrics to fetch—there is no fixed list; you discover and choose.
+DB_HEALTH_AGENT_SYSTEM = """You are a TiDB cluster health and performance assistant. You perform analysis using only Prometheus metrics. Do not run SQL or slow-query tools—use only the Prometheus-related tools below.
 
 Available tools:
-- parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use for "last 30 minutes" or "YYYY-MM-DD HH:MM:SS" start/end.
-- list_hosts: Input: {}. Returns available DB and Prometheus host names. Use these as host_name / prometheus_host in other tools.
-- run_sql: Input: {"sql": "SELECT ...", "host_name": "optional"}. Runs a SQL query via MCP (e.g. CLUSTER_SLOW_QUERY, statement summary).
+- parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use for "last 6 hours", "last 30 minutes", or "YYYY-MM-DD HH:MM:SS" start/end.
+- list_hosts: Input: {}. Returns available Prometheus host names (use as prometheus_host in other tools).
 - list_prometheus_metric_names: Input: {"prometheus_host": "optional"}. Returns list of metric names from Prometheus. Use to discover what to query.
 - get_prometheus_metadata: Input: {"prometheus_host": "optional"}. Returns metadata (type, help) for each metric. Use to build correct PromQL (e.g. rate() for counters, histogram_quantile for histograms).
 - run_promql: Input: {"prometheus_host": "optional", "query": "PromQL expression", "start_ts": "YYYY-MM-DD HH:MM:SS", "end_ts": "YYYY-MM-DD HH:MM:SS"}. Runs one range query and returns a text summary. Call multiple times for different metrics.
@@ -41,7 +36,7 @@ Observation: (you will receive this after the tool runs)
 
 When you have enough information:
 Thought: I have enough to answer.
-Final Answer: <your full response to the user. Synthesize the gathered data (SQL results, Prometheus metrics) and provide root cause analysis (RCA), recommendations, and a clear summary—all based on the information you collected.>
+Final Answer: <your full response to the user. Synthesize the Prometheus metrics you gathered and provide root cause analysis (RCA), recommendations, and a clear summary.>
 """
 
 
@@ -52,52 +47,9 @@ def _run_parse_time_window(question: str) -> str:
 
 def _run_list_hosts() -> str:
     SiteSetting.update_db_cache()
-    ws = getattr(SiteSetting, "mcp_hosts", None) or []
-    managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
     prometheus = getattr(SiteSetting, "prometheus_hosts", None) or []
-    db_names = set()
-    for it in ws:
-        name = str((it or {}).get("text", "")).strip()
-        href = str((it or {}).get("href", "")).strip()
-        if name and href and (href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://")):
-            db_names.add(name)
-    for it in managed:
-        name = str((it or {}).get("name", "")).strip()
-        if name:
-            db_names.add(name)
     prom_names = [str((it or {}).get("name", "")).strip() for it in prometheus if (it or {}).get("name")]
-    return json.dumps({
-        "db_hosts": sorted(db_names),
-        "prometheus_hosts": prom_names,
-    }, ensure_ascii=False)
-
-
-def _run_sql(chat_flow: Any, sql: str, host_name: Optional[str] = None) -> str:
-    if not sql or not sql.strip():
-        return json.dumps({"error": "sql is required"})
-    try:
-        SiteSetting.update_db_cache()
-        managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
-        managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed if it}
-        ws_list = getattr(SiteSetting, "mcp_hosts", None) or []
-        ws_names = {
-            str((it or {}).get("text", "")).strip().lower()
-            for it in ws_list
-            if it and (href := str((it or {}).get("href", "")).strip())
-            and (href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://"))
-        }
-        if host_name and host_name.lower() in managed_names and host_name.lower() not in ws_names:
-            from app.mcp.managed import run_managed_mcp_db_query
-            result = run_managed_mcp_db_query(host_name, sql)
-        else:
-            result = run_mcp_db_query(sql, host_name=host_name)
-        rows = normalize_rows(result, logger=logger)
-        if isinstance(rows, list) and rows:
-            return json.dumps({"row_count": len(rows), "rows": rows[:50]}, default=str, ensure_ascii=False)
-        return json.dumps({"row_count": 0, "raw": str(result)[:2000]}, ensure_ascii=False)
-    except Exception as e:
-        logger.exception("run_sql failed: %s", e)
-        return json.dumps({"error": str(e)})
+    return json.dumps({"prometheus_hosts": prom_names}, ensure_ascii=False)
 
 
 def _run_get_prometheus_metadata(prometheus_host: Optional[str] = None) -> str:
@@ -147,12 +99,6 @@ def _execute_tool(name: str, action_input: dict, chat_flow: Any) -> str:
         return _run_parse_time_window(str((action_input or {}).get("question", "")))
     if name == "list_hosts":
         return _run_list_hosts()
-    if name == "run_sql":
-        return _run_sql(
-            chat_flow,
-            str((action_input or {}).get("sql", "")),
-            action_input.get("host_name"),
-        )
     if name == "list_prometheus_metric_names":
         return _run_list_prometheus_metric_names(action_input.get("prometheus_host"))
     if name == "get_prometheus_metadata":
