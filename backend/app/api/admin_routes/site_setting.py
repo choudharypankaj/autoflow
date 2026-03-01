@@ -171,6 +171,48 @@ def update_site_setting(
                     detail=f"Failed to validate managed MCP agent '{name}': {e}",
                 )
 
+    if setting_name == "prometheus_hosts":
+        hosts = request.value or []
+        if not isinstance(hosts, list):
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="prometheus_hosts must be a list of {name, prometheus_url, bearer_token?}",
+            )
+        for item in hosts:
+            name = str((item or {}).get("name", "")).strip() or "<unnamed>"
+            prometheus_url = str((item or {}).get("prometheus_url", "")).strip()
+            if not prometheus_url:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Prometheus host '{name}' must include prometheus_url",
+                )
+            if not (prometheus_url.startswith("http://") or prometheus_url.startswith("https://")):
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Prometheus host '{name}' has invalid prometheus_url: {prometheus_url}",
+                )
+            base = prometheus_url.rstrip("/")
+            headers = {}
+            if item and item.get("bearer_token"):
+                headers["Authorization"] = f"Bearer {str(item.get('bearer_token', '')).strip()}"
+            try:
+                resp = requests.get(
+                    base + "/api/v1/query",
+                    params={"query": "1"},
+                    headers=headers or None,
+                    timeout=6,
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Failed to reach Prometheus for '{name}': {e}",
+                ) from e
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Prometheus API failed for '{name}': {resp.status_code} {resp.text[:300]}",
+                )
+
     if setting_name == "mcp_grafana_hosts":
         hosts = request.value or []
         if not isinstance(hosts, list):

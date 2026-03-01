@@ -9,7 +9,7 @@ from llama_index.core.base.llms.types import MessageRole
 from llama_index.core.prompts.rich import RichPromptTemplate
 
 from app.mcp.client import run_mcp_db_query
-from app.rag.chat.slow_query_grafana import build_grafana_tidb_metrics_analysis
+from app.rag.chat.slow_query_prometheus import build_prometheus_tidb_metrics_analysis
 from app.repositories import chat_repo
 from app.site_settings import SiteSetting
 
@@ -569,7 +569,11 @@ def maybe_run_db_slow_query(
         r"\brocksdb_key_skipped_count\b",
     ]
     if not any(re.search(p, user_question, flags=re.IGNORECASE) for p in trigger_patterns):
-        if not re.search(r"\b(analy(?:s|z)e|summary|slow)\b", user_question, flags=re.IGNORECASE):
+        if not re.search(
+            r"\b(analy(?:s|z)e|summary|slow|grafana|prometheus|metrics?|monitoring)\b",
+            user_question,
+            flags=re.IGNORECASE,
+        ):
             return None
 
     # Extract two UTC timestamps
@@ -671,13 +675,13 @@ def maybe_run_db_slow_query(
             SiteSetting.update_db_cache()
             ws = getattr(SiteSetting, "mcp_hosts", None) or []
             managed = getattr(SiteSetting, "managed_mcp_agents", None) or []
-            grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
+            prometheus_hosts = getattr(SiteSetting, "prometheus_hosts", None) or []
             db_valid_names = set()
             for item in ws:
                 try:
                     name = str(item.get("text", "")).strip()
                     href = str((item or {}).get("href", "")).strip()
-                    if name and href and not href.startswith("managed-grafana://") and (
+                    if name and href and (
                         href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://")
                     ):
                         db_valid_names.add(name.lower())
@@ -690,9 +694,9 @@ def maybe_run_db_slow_query(
                         db_valid_names.add(name.lower())
                 except Exception:
                     continue
-            grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_hosts if it}
+            prometheus_names = {str((it or {}).get("name", "")).strip().lower() for it in prometheus_hosts if it}
             if candidate:
-                if candidate.lower() in grafana_names:
+                if candidate.lower() in prometheus_names:
                     host_name = candidate
                 elif candidate.lower() in db_valid_names:
                     host_name = candidate
@@ -703,21 +707,20 @@ def maybe_run_db_slow_query(
         except Exception:
             pass
 
-    grafana_host_name = None
+    prometheus_host_name = None
     db_host_name = host_name
     db_host_ready = False
     default_mcp_ok = False
     try:
         SiteSetting.update_db_cache()
-        grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
-        grafana_names = {str((it or {}).get("name", "")).strip().lower() for it in grafana_hosts if it}
+        prometheus_hosts = getattr(SiteSetting, "prometheus_hosts", None) or []
+        prometheus_names = {str((it or {}).get("name", "")).strip().lower() for it in prometheus_hosts if it}
         ws_hosts = getattr(SiteSetting, "mcp_hosts", None) or []
         managed_agents = getattr(SiteSetting, "managed_mcp_agents", None) or []
         managed_names = {str((it or {}).get("name", "")).strip().lower() for it in managed_agents if it}
         default_mcp_url = str(getattr(SiteSetting, "mcp_host", "") or "").strip()
         default_mcp_ok = bool(
             default_mcp_url
-            and not default_mcp_url.startswith("managed-grafana://")
             and (
                 default_mcp_url.startswith("ws://")
                 or default_mcp_url.startswith("wss://")
@@ -729,11 +732,10 @@ def maybe_run_db_slow_query(
             for it in ws_hosts
             if it
             and (href := str((it or {}).get("href", "")).strip())
-            and not href.startswith("managed-grafana://")
             and (href.startswith("ws://") or href.startswith("wss://") or href.startswith("managed://"))
         }
-        if host_name and host_name.lower() in grafana_names:
-            grafana_host_name = host_name
+        if host_name and host_name.lower() in prometheus_names:
+            prometheus_host_name = host_name
             db_host_name = ""
         if not db_host_name:
             if managed_names:
@@ -762,10 +764,10 @@ def maybe_run_db_slow_query(
         else:
             db_host_ready = True
     except Exception:
-        grafana_hosts = []
+        prometheus_hosts = []
         db_host_ready = bool(db_host_name)
-    if not grafana_host_name and grafana_hosts:
-        grafana_host_name = str((grafana_hosts[0] or {}).get("name", "")).strip() or None
+    if not prometheus_host_name and prometheus_hosts:
+        prometheus_host_name = str((prometheus_hosts[0] or {}).get("name", "")).strip() or None
     display_host = db_host_name
     if not display_host:
         # Try to resolve default mcp_host to a configured DB host name.
@@ -955,13 +957,14 @@ def maybe_run_db_slow_query(
                 ],
             )
 
-            grafana_text = build_grafana_tidb_metrics_analysis(
+            grafana_text = build_prometheus_tidb_metrics_analysis(
                 start_ts,
                 end_ts,
-                grafana_host_name,
+                prometheus_host_name,
                 logger,
                 cluster_hint,
                 chat_flow.db_session,
+                user_question=user_question,
             )
 
             recommendations: list[dict] = []

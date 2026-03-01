@@ -6,6 +6,7 @@ import { LinkArrayField } from '@/components/settings/LinkArrayField';
 import { z } from 'zod';
 import { ManagedMCPAgentsField } from '@/components/settings/ManagedMCPAgentsField';
 import { GrafanaMCPHostsField } from '@/components/settings/GrafanaMCPHostsField';
+import { PrometheusHostsField } from '@/components/settings/PrometheusHostsField';
 
 export function IntegrationsSettings ({ schema, showPostVerificationSettings }: { schema: AllSettings, showPostVerificationSettings: boolean }) {
   return (
@@ -66,6 +67,28 @@ export function ManagedMCPSettings ({ schema, hideTitle, disabled, onChanged }: 
         {props => <ManagedMCPAgentsField {...props} />}
       </SettingsField>
       <p className="text-xs text-muted-foreground">Note: Only the agent names are used in the chat dropdown; credentials stay server-side.</p>
+    </section>
+  );
+}
+
+export function PrometheusSettings ({ schema, hideTitle, disabled, onChanged }: { schema: AllSettings, hideTitle?: boolean, disabled?: boolean, onChanged?: () => void }) {
+  return (
+    <section className="space-y-6">
+      {!hideTitle && <h2 className="text-lg font-medium">Prometheus</h2>}
+      <SettingsField
+        name="prometheus_hosts"
+        item={schema.prometheus_hosts}
+        arrayItemSchema={z.object({
+          name: z.string(),
+          prometheus_url: z.string(),
+          bearer_token: z.string().optional().nullable(),
+        })}
+        onChanged={onChanged}
+        disabled={disabled}
+      >
+        {props => <GrafanaMCPHostsField {...props} />}
+      </SettingsField>
+      <p className="text-xs text-muted-foreground">Prometheus server URLs for metrics. Queries run via the Prometheus HTTP API.</p>
     </section>
   );
 }

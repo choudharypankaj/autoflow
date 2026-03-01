@@ -171,6 +171,74 @@ def _build_grafana_vars(cluster_hint: str | None) -> dict:
     return vars_map
 
 
+# Metric intents: (label, dashboard_title_pattern, panel_title_pattern).
+# Used to select which Grafana panels to run based on user question.
+GRAFANA_METRIC_CONFIGS: list[tuple[str, str, str]] = [
+    ("Duration (TiDB)", r"\btidb\b", r"\bduration\b"),
+    ("CPU (TiDB)", r"\btidb\b", r"\bcpu\b"),
+    ("CPU (TiKV)", r"\btikv\b", r"\bcpu\b"),
+    ("Memory (TiDB)", r"\btidb\b", r"\bmemory\b"),
+    ("Memory (TiKV)", r"\btikv\b", r"\bmemory\b"),
+    ("QPS (TiDB)", r"\btidb\b", r"\b(qps|throughput|queries)\b"),
+    ("Connection (TiDB)", r"\btidb\b", r"\bconnection\b"),
+]
+
+
+def infer_grafana_metrics_from_user_question(user_question: str | None) -> list[tuple[str, str, str]] | None:
+    """
+    Infer which Grafana metric panels to run from the user's question.
+    Returns a list of (label, dashboard_pattern, panel_pattern) to run, or None to use default (all standard panels).
+    """
+    if not user_question or not isinstance(user_question, str):
+        return None
+    q = user_question.strip().lower()
+    if not q:
+        return None
+
+    # Keywords that map to metric intents (order matters for disambiguation).
+    wants_duration = any(
+        re.search(p, q) for p in [r"\bduration\b", r"\blatency\b", r"\bp99\b", r"\bp95\b", r"\bpercentile\b"]
+    )
+    wants_cpu_tidb = bool(re.search(r"\btidb\b", q) and re.search(r"\bcpu\b", q))
+    wants_cpu_tikv = bool(re.search(r"\btikv\b", q) and re.search(r"\bcpu\b", q))
+    wants_cpu_any = bool(re.search(r"\bcpu\b", q) and not wants_cpu_tidb and not wants_cpu_tikv)
+    wants_memory = any(
+        re.search(p, q) for p in [r"\bmemory\b", r"\bram\b", r"\bheap\b"]
+    )
+    wants_qps = any(
+        re.search(p, q) for p in [r"\bqps\b", r"\bthroughput\b", r"\bqueries?\s*per\s*sec", r"\btps\b"]
+    )
+    wants_connection = any(
+        re.search(p, q) for p in [r"\bconnection\b", r"\bconn\b", r"\bconnect\b"]
+    )
+    wants_tidb = re.search(r"\btidb\b", q)
+    wants_tikv = re.search(r"\btikv\b", q)
+
+    selected: list[tuple[str, str, str]] = []
+    for label, dash_pat, panel_pat in GRAFANA_METRIC_CONFIGS:
+        if "Duration" in label and wants_duration:
+            selected.append((label, dash_pat, panel_pat))
+        elif "CPU (TiDB)" in label and (wants_cpu_tidb or (wants_cpu_any and wants_tidb)):
+            selected.append((label, dash_pat, panel_pat))
+        elif "CPU (TiKV)" in label and (wants_cpu_tikv or (wants_cpu_any and wants_tikv)):
+            selected.append((label, dash_pat, panel_pat))
+        elif "Memory (TiDB)" in label and wants_memory and wants_tidb:
+            selected.append((label, dash_pat, panel_pat))
+        elif "Memory (TiKV)" in label and wants_memory and wants_tikv:
+            selected.append((label, dash_pat, panel_pat))
+        elif "QPS" in label and wants_qps:
+            selected.append((label, dash_pat, panel_pat))
+        elif "Connection" in label and wants_connection:
+            selected.append((label, dash_pat, panel_pat))
+
+    # If user asked for "grafana" or "metrics" without specific types, return None so we run default set.
+    if selected:
+        return selected
+    if re.search(r"\bgrafana\b|\bmetrics?\b|\bmonitoring\b", q):
+        return None  # use default panels
+    return None
+
+
 def _extract_series_values_by_label(series: list, label_key: str) -> dict[str, list[float]]:
     values_by_label: dict[str, list[float]] = {}
     for s in series:
@@ -436,6 +504,7 @@ def build_grafana_tidb_metrics_analysis(
     logger: logging.Logger,
     cluster_hint: str | None = None,
     session: Any | None = None,
+    user_question: str | None = None,
 ) -> str:
     SiteSetting.update_db_cache()
     grafana_hosts = getattr(SiteSetting, "mcp_grafana_hosts", None) or []
@@ -627,21 +696,28 @@ def build_grafana_tidb_metrics_analysis(
     if not panels:
         return "Grafana TiDB metrics:\n\n- Grafana panels not synced; sync dashboards and panels first."
 
-    summary_panel = _pick_panel_entry(
-        panels,
-        dashboard_title_pattern=r"\btidb\b",
-        panel_title_pattern=r"\bduration\b",
+    # Decide which metric panels to run: from user question or default set.
+    metric_configs = infer_grafana_metrics_from_user_question(user_question)
+    if not metric_configs:
+        metric_configs = [
+            ("Duration (TiDB)", r"\btidb\b", r"\bduration\b"),
+            ("CPU (TiDB)", r"\btidb\b", r"\bcpu\b"),
+            ("CPU (TiKV)", r"\btikv\b", r"\bcpu\b"),
+        ]
+    logger.info(
+        "Grafana metrics to run (user_question=%s): %s",
+        user_question[:80] if user_question else None,
+        [c[0] for c in metric_configs],
     )
-    cpu_panel = _pick_panel_entry(panels, dashboard_title_pattern=r"\btidb\b", panel_title_pattern=r"\bcpu\b")
-    tikv_cpu_panel = _pick_panel_entry(panels, dashboard_title_pattern=r"\btikv\b", panel_title_pattern=r"\bcpu\b")
 
     vars_map = _build_grafana_vars(cluster_hint)
     metrics = []
-    for label, panel in [
-        ("Duration (TiDB)", summary_panel),
-        ("CPU (TiDB)", cpu_panel),
-        ("CPU (TiKV)", tikv_cpu_panel),
-    ]:
+    for label, dashboard_title_pattern, panel_title_pattern in metric_configs:
+        panel = _pick_panel_entry(
+            panels,
+            dashboard_title_pattern=dashboard_title_pattern,
+            panel_title_pattern=panel_title_pattern,
+        )
         if not panel:
             metrics.append(f"{label}:\n- No matching panel found.")
             continue

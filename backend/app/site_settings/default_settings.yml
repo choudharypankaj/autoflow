@@ -156,6 +156,16 @@ mcp:
     data_type: list
     description: "Managed MCP agents with TiDB credentials. Items: { name, tidb_host, tidb_port, tidb_username, tidb_password, tidb_database }"
     client: false
+  prometheus_hosts:
+    default: []
+    data_type: list
+    description: "Prometheus servers for metrics. Items: { name, prometheus_url, bearer_token (optional) }"
+    client: false
+  prometheus_vars:
+    default: {}
+    data_type: dict
+    description: "Label/value substitution for Prometheus queries, e.g. {tidb_cluster: my-cluster, instance: .*}."
+    client: false
   mcp_grafana_hosts:
     default: []
     data_type: list
