@@ -44,6 +44,8 @@ def _apply_vars_to_expr(expr: str, vars_map: dict[str, str]) -> str:
 
 # (label, summary_type, promql_template). summary_type: duration | cpu | gauge_per_instance
 # Templates may use $tidb_cluster, $instance, etc. from prometheus_vars.
+# This list defines all available metrics; selection is flexible from user_question
+# (keyword match) or full set when user asks for generic "metrics"/"analyze".
 PROMETHEUS_METRIC_CONFIGS: list[tuple[str, str, str]] = [
     (
         "Duration (TiDB)",
@@ -93,7 +95,11 @@ def infer_prometheus_metrics_from_user_question(
 ) -> list[tuple[str, str, str]] | None:
     """
     Infer which Prometheus metrics to run from the user's question.
-    Returns list of (label, summary_type, promql_template) or None for default set.
+    Returns list of (label, summary_type, promql_template), or None to use default set.
+    - If the user mentions specific topics (duration, cpu, memory, qps, connections),
+      only matching metrics are returned.
+    - If the user asks generically for "metrics"/"prometheus"/"monitoring"/"analyze"
+      without specific keywords, returns None so the caller runs the full default set.
     """
     if not user_question or not isinstance(user_question, str):
         return None
@@ -142,7 +148,9 @@ def infer_prometheus_metrics_from_user_question(
 
     if selected:
         return selected
-    if re.search(r"\bprometheus\b|\bmetrics?\b|\bmonitoring\b", q):
+    # Generic request (e.g. "analyze for prod cluster last 30 minutes"): return None
+    # so caller uses full default set (all metrics).
+    if re.search(r"\bprometheus\b|\bmetrics?\b|\bmonitoring\b|\banaly(?:s|z)e\b", q):
         return None
     return None
 
@@ -191,11 +199,8 @@ def build_prometheus_tidb_metrics_analysis(
     vars_map = _build_prometheus_vars(cluster_hint)
     metric_configs = infer_prometheus_metrics_from_user_question(user_question)
     if not metric_configs:
-        metric_configs = [
-            (label, stype, promql)
-            for label, stype, promql in PROMETHEUS_METRIC_CONFIGS
-            if label in ("Duration (TiDB)", "CPU (TiDB)", "CPU (TiKV)")
-        ]
+        # Full default set: all configured metrics (flexible by user request).
+        metric_configs = list(PROMETHEUS_METRIC_CONFIGS)
     logger.info(
         "Prometheus metrics to run (user_question=%s) metric_labels=%s",
         user_question or "",
