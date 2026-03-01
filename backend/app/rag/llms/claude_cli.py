@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from typing import Any, AsyncGenerator, Generator, Optional, Sequence
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Generator, Optional, Sequence
 
 from llama_index.core.base.llms.base import BaseLLM
 from llama_index.core.base.llms.types import (
@@ -22,6 +22,9 @@ from llama_index.core.base.llms.types import (
     LLMMetadata,
     MessageRole,
 )
+
+if TYPE_CHECKING:
+    from llama_index.core.prompts.base import BasePromptTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,16 @@ class ClaudeCLILLM(BaseLLM):
             is_chat_model=True,
             is_function_calling_model=False,
         )
+
+    def predict(
+        self,
+        prompt: "BasePromptTemplate",
+        **prompt_args: Any,
+    ) -> str:
+        """Format the prompt and run completion; return the response text (used by ReAct agent, etc.)."""
+        formatted = prompt.format(**prompt_args)
+        response = self.complete(formatted, formatted=True)
+        return response.text
 
     def complete(
         self, prompt: str, formatted: bool = False, **kwargs: Any
