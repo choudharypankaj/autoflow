@@ -35,6 +35,7 @@ def get_ssl_context():
 async_engine = create_async_engine(
     str(settings.SQLALCHEMY_ASYNC_DATABASE_URI),
     pool_recycle=300,
+    pool_pre_ping=True,
     connect_args={
         # seems config ssl in url is not working
         # we can only config ssl in connect_args

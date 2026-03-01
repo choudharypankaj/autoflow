@@ -1,6 +1,6 @@
 """
 Agent loop for database health / Prometheus-only analysis.
-Uses only Prometheus metrics (list metrics, metadata, run_promql); no SQL/slow-query tools.
+Uses only Prometheus metrics; the chat engine's configured LLM runs a ReAct loop with tools.
 """
 import json
 import logging
@@ -149,8 +149,7 @@ def run_db_health_agent_loop(
     max_response_chars: int = 55000,
 ) -> str:
     """
-    Run the ReAct-style agent loop for database health / slow-query / Prometheus.
-    Returns the final answer string.
+    Run the ReAct-style DB health agent using the chat engine's configured LLM.
     """
     llm = getattr(chat_flow, "_llm", None)
     if not llm:

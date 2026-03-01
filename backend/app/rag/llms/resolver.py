@@ -105,6 +105,16 @@ def resolve_llm(
             config.setdefault("request_timeout", 60 * 10)
             config.setdefault("context_window", 8192)
             return Ollama(model=model, **config)
+        case LLMProvider.CLAUDE_CLI:
+            from app.rag.llms.claude_cli import ClaudeCLILLM
+
+            cli_path = (config or {}).get("cli_path", "claude")
+            agent_id = (config or {}).get("agent_id", "") or ""
+            return ClaudeCLILLM(
+                model=model or "claude-cli",
+                cli_path=cli_path,
+                agent_id=agent_id,
+            )
         case _:
             raise ValueError(f"Got unknown LLM provider: {provider}")
 
