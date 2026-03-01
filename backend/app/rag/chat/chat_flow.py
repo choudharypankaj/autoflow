@@ -30,7 +30,10 @@ from app.rag.chat.stream_protocol import (
     ChatStreamDataPayload,
     ChatStreamMessagePayload,
 )
-from app.rag.chat.slow_query_db import maybe_run_db_slow_query
+from app.rag.chat.db_health_agent import (
+    run_db_health_agent_loop,
+    should_use_db_health_agent,
+)
 from app.rag.llms.dspy import get_dspy_lm_by_llama_llm
 from app.rag.retrievers.knowledge_graph.schema import KnowledgeGraphRetrievalResult
 from app.rag.types import ChatEventType, ChatMessageSate
@@ -189,8 +192,6 @@ class ChatFlow:
             fast_llm=self._fast_llm,
             knowledge_bases=self.knowledge_bases,
         )
-        # Cached structured meta for slow query runs to power follow-ups
-        self._cached_slow_query_meta: Optional[dict] = None
 
     def chat(self) -> Generator[ChatEvent | str, None, None]:
         try:
@@ -232,9 +233,21 @@ class ChatFlow:
         db_user_message, db_assistant_message = yield from self._chat_start()
         langfuse_instrumentor_context.get().update(ctx)
 
-        # Special-case: DB slow query agent (user provides UTC start/end)
-        response_text = self._maybe_run_db_slow_query(self.user_question)
-        if response_text is not None:
+        # Special-case: DB health agent (slow queries, metrics, Prometheus RCA)
+        if should_use_db_health_agent(self.user_question):
+            yield ChatEvent(
+                event_type=ChatEventType.MESSAGE_ANNOTATIONS_PART,
+                payload=ChatStreamMessagePayload(
+                    state=ChatMessageSate.KG_RETRIEVAL,
+                    display="Running database health agent (tools: time window, SQL, Prometheus RCA)",
+                ),
+            )
+            response_text = run_db_health_agent_loop(
+                self,
+                self.user_question,
+                max_steps=6,
+                max_response_chars=MAX_CHAT_RESULT_CHARS,
+            )
             yield from self._chat_finish(
                 db_assistant_message=db_assistant_message,
                 db_user_message=db_user_message,
@@ -242,7 +255,6 @@ class ChatFlow:
                 knowledge_graph=KnowledgeGraphRetrievalResult(),
                 source_documents=[],
                 annotation_silent=True,
-                extra_meta=self._cached_slow_query_meta,
             )
             return response_text, []
 
@@ -298,15 +310,6 @@ class ChatFlow:
         )
 
         return response_text, source_documents
-
-    def _maybe_run_db_slow_query(self, user_question: str) -> Optional[str]:
-        return maybe_run_db_slow_query(
-            self,
-            user_question,
-            logger=logger,
-            max_chars=MAX_CHAT_RESULT_CHARS,
-            json_safe=_json_safe,
-        )
 
     def _chat_start(
         self,

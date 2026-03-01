@@ -1,5 +1,6 @@
 """
-Prometheus-based TiDB metrics analysis using the Prometheus HTTP API.
+Prometheus-based TiDB metrics analysis for the DB health agent.
+Used by db_health_agent tools: build_prometheus_tidb_metrics_analysis and build_rca_summary_from_metrics.
 Queries are flexible and derived from the user question; no MCP server required.
 """
 import logging
