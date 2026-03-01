@@ -2,7 +2,64 @@
 
 This repository includes wiring to run the TiDB MCP server (from `pytidb`) for local development and integration with MCP-compatible hosts (e.g., Claude Desktop, Cursor).
 
-## Prerequisites
+---
+
+## Prometheus MCP Server
+
+A Prometheus MCP server (similar to [AWS Labs prometheus-mcp-server](https://github.com/awslabs/mcp/tree/main/src/prometheus-mcp-server)) is included in the backend. It exposes Prometheus HTTP API as MCP tools over stdio.
+
+### Tools
+
+- **prometheus_query** – Instant query (Prometheus `/api/v1/query`). Parameters: `query` (PromQL), optional `time_sec` (Unix timestamp).
+- **prometheus_query_range** – Range query (Prometheus `/api/v1/query_range`). Parameters: `query`, `start_sec`, `end_sec`, `step_sec` (default 60).
+
+### Prerequisites
+
+- Prometheus server reachable at a URL (e.g. `http://localhost:9090`)
+- Optional: `PROMETHEUS_BEARER_TOKEN` for Bearer auth
+
+### Run (stdio)
+
+```bash
+export PROMETHEUS_URL=http://localhost:9090
+# optional: export PROMETHEUS_BEARER_TOKEN=your_token
+
+make -C backend dev_prometheus_mcp_server
+```
+
+Or directly:
+
+```bash
+cd backend
+export PROMETHEUS_URL=http://localhost:9090
+uv run python -m app.mcp_server_prometheus
+```
+
+### Claude Desktop (example)
+
+```json
+{
+  "mcpServers": {
+    "prometheus": {
+      "command": "uv",
+      "args": ["run", "-m", "app.mcp_server_prometheus"],
+      "env": {
+        "PROMETHEUS_URL": "http://localhost:9090"
+      }
+    }
+  }
+}
+```
+
+### Integration with autoflow
+
+The autoflow backend uses the Prometheus **HTTP API** directly (no MCP server required) for slow-query metrics. The Prometheus MCP server is provided for use with MCP hosts (e.g. Claude Desktop, Cursor) that want to query Prometheus via tools.
+
+---
+
+## TiDB MCP Server (pytidb)
+
+### Prerequisites
 
 - Python 3.11+ with `uv` installed (the backend image already uses `uv`)
 - A TiDB cluster (host, port, username, password, database)

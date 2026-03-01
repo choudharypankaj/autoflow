@@ -51,3 +51,11 @@ dev_mcp_server:
 		exit 1; \
 	fi
 	@python -m pytidb.ext.mcp
+
+dev_prometheus_mcp_server:
+	@echo "Starting Prometheus MCP server (stdio)..."
+	@if [ -z "$$PROMETHEUS_URL" ]; then \
+		echo "Please export PROMETHEUS_URL (e.g. http://localhost:9090)"; \
+		exit 1; \
+	fi
+	@python -m app.mcp_server_prometheus

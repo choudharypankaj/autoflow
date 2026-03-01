@@ -86,9 +86,9 @@ export function PrometheusSettings ({ schema, hideTitle, disabled, onChanged }: 
         onChanged={onChanged}
         disabled={disabled}
       >
-        {props => <GrafanaMCPHostsField {...props} />}
+        {props => <PrometheusHostsField {...props} />}
       </SettingsField>
-      <p className="text-xs text-muted-foreground">Prometheus server URLs for metrics. Queries run via the Prometheus HTTP API.</p>
+      <p className="text-xs text-muted-foreground">Prometheus server URLs for metrics. Add by URL and port; queries run via the Prometheus HTTP API.</p>
     </section>
   );
 }
