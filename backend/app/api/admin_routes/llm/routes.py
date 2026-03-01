@@ -41,6 +41,8 @@ def test_llm(
     user: CurrentSuperuserDep,
 ) -> LLMTestResult:
     try:
+        from app.rag.llms.provider import LLMProvider
+
         llm = resolve_llm(
             provider=db_llm.provider,
             model=db_llm.model,
@@ -49,15 +51,16 @@ def test_llm(
         )
         llm.chat([ChatMessage(role="user", content="Who are you?")])
 
-        # Test with dspy LM.
-        import dspy
-        from app.rag.llms.dspy import get_dspy_lm_by_llama_llm
+        # Test with dspy LM (skipped for Claude CLI; it has no DSPy backend).
+        if db_llm.provider != LLMProvider.CLAUDE_CLI:
+            import dspy
+            from app.rag.llms.dspy import get_dspy_lm_by_llama_llm
 
-        dspy_lm = get_dspy_lm_by_llama_llm(llm)
-        with dspy.context(lm=dspy_lm):
-            math = dspy.Predict("question -> answer: float")
-            prediction = math(question="1 + 1 = ?")
-            assert prediction.answer == 2
+            dspy_lm = get_dspy_lm_by_llama_llm(llm)
+            with dspy.context(lm=dspy_lm):
+                math = dspy.Predict("question -> answer: float")
+                prediction = math(question="1 + 1 = ?")
+                assert prediction.answer == 2
 
         success = True
         error = ""

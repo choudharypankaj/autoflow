@@ -79,6 +79,10 @@ class ClaudeCLILLM(BaseLLM):
     cli_path: str = "claude"
     agent_id: str = ""
 
+    @classmethod
+    def class_name(cls) -> str:
+        return "ClaudeCLILLM"
+
     @property
     def metadata(self) -> LLMMetadata:
         return LLMMetadata(
