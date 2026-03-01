@@ -7,6 +7,8 @@ import logging
 import re
 from typing import Any, Optional
 
+from llama_index.core import PromptTemplate
+
 from app.mcp.client import run_mcp_db_query
 from app.rag.chat.slow_query_db import (
     normalize_rows,
@@ -216,7 +218,8 @@ def run_db_health_agent_loop(
             + "\n\nRespond with Thought, then either Action + Action Input, or Final Answer."
         )
         try:
-            response = str(llm.predict(prompt)).strip()
+            template = PromptTemplate(prompt)
+            response = str(llm.predict(template)).strip()
         except Exception as e:
             logger.exception("Agent LLM step failed: %s", e)
             return f"Agent error: {e}"
