@@ -7,6 +7,7 @@ from app.api.routes import (
     api_key,
     feedback,
     document,
+    prometheus_rca,
 )
 from app.api.admin_routes.knowledge_base.routes import (
     router as admin_knowledge_base_router,
@@ -73,6 +74,7 @@ api_router.include_router(api_key.router, tags=["auth"])
 api_router.include_router(document.router, tags=["documents"])
 api_router.include_router(chat_engine.router, tags=["chat-engines"])
 api_router.include_router(retrieve_routes.router, tags=["retrieve"])
+api_router.include_router(prometheus_rca.router, tags=["prometheus"])
 api_router.include_router(admin_user_router)
 api_router.include_router(admin_chat_engine.router, tags=["admin/chat-engines"])
 api_router.include_router(admin_document_router, tags=["admin/documents"])

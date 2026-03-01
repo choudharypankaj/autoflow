@@ -9,7 +9,10 @@ from llama_index.core.base.llms.types import MessageRole
 from llama_index.core.prompts.rich import RichPromptTemplate
 
 from app.mcp.client import run_mcp_db_query
-from app.rag.chat.slow_query_prometheus import build_prometheus_tidb_metrics_analysis
+from app.rag.chat.slow_query_prometheus import (
+    build_prometheus_tidb_metrics_analysis,
+    build_rca_summary_from_metrics,
+)
 from app.repositories import chat_repo
 from app.site_settings import SiteSetting
 
@@ -970,6 +973,7 @@ def maybe_run_db_slow_query(
                 chat_flow.db_session,
                 user_question=user_question,
             )
+            rca_summary = build_rca_summary_from_metrics(metrics_text, user_question)
 
             recommendations: list[dict] = []
             if isinstance(top_digest, dict):
@@ -1058,6 +1062,7 @@ def maybe_run_db_slow_query(
                 "Statement summary (by digest):\n\n"
                 f"{stmt_md}\n\n"
                 f"{metrics_text}\n\n"
+                f"{rca_summary}\n\n"
                 "Query output (raw rows):\n\n"
                 f"{query_output_md}\n\n"
                 "Slow query summary (by digest):\n\n"

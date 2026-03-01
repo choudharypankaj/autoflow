@@ -166,3 +166,13 @@ mcp:
     data_type: dict
     description: "Label/value substitution for Prometheus queries, e.g. {tidb_cluster: my-cluster, instance: .*}."
     client: false
+  prometheus_metric_configs:
+    default: []
+    data_type: list
+    description: "Optional custom Prometheus metrics. Each item: { label, summary_type, promql }. summary_type: duration | cpu | gauge_per_instance | gauge. If non-empty, replaces the built-in TiDB metric list; use prometheus_vars for $var substitution in promql."
+    client: false
+  prometheus_rca_discovery:
+    default: true
+    data_type: bool
+    description: "When true, discover metrics from Prometheus (names + metadata) and select those relevant to the user's question for RCA; when false or discovery fails, use prometheus_metric_configs or built-in list."
+    client: false
