@@ -12,7 +12,7 @@ from app.rag.postprocessors.metadata_post_filter import MetadataPostFilter
 from app.rag.retrievers.chunk.schema import VectorSearchRetrieverConfig
 from app.rag.retrievers.knowledge_graph.schema import KnowledgeGraphRetrieverConfig
 from app.rag.llms.dspy import get_dspy_lm_by_llama_llm
-from app.rag.llms.resolver import get_default_llm, resolve_llm
+from app.rag.llms.resolver import get_default_llm, must_get_default_llm, resolve_llm
 from app.rag.rerankers.resolver import get_default_reranker_model, resolve_reranker
 
 from app.models import (
@@ -155,8 +155,19 @@ class ChatEngineConfig(BaseModel):
         )
 
     def get_fast_dspy_lm(self, session: Session) -> dspy.LM:
-        llama_llm = self.get_fast_llama_llm(session)
-        return get_dspy_lm_by_llama_llm(llama_llm)
+        """Return a DSPy LM for fast/retrieval use. If the configured fast LLM does not support DSPy (e.g. Claude CLI), falls back to main LLM then default LLM."""
+        for llama_llm in (
+            self.get_fast_llama_llm(session),
+            self.get_llama_llm(session),
+            must_get_default_llm(session),
+        ):
+            try:
+                return get_dspy_lm_by_llama_llm(llama_llm)
+            except ValueError:
+                continue
+        raise ValueError(
+            "No DSPy-compatible LLM available. Configure at least one of main or fast LLM to use a provider that supports DSPy (e.g. OpenAI, Anthropic, Ollama)."
+        )
 
     # FIXME: Reranker top_n should be config in the retrieval config.
     def get_reranker(

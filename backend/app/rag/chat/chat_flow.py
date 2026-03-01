@@ -34,7 +34,6 @@ from app.rag.chat.db_health_agent import (
     run_db_health_agent_loop,
     should_use_db_health_agent,
 )
-from app.rag.llms.dspy import get_dspy_lm_by_llama_llm
 from app.rag.retrievers.knowledge_graph.schema import KnowledgeGraphRetrievalResult
 from app.rag.types import ChatEventType, ChatMessageSate
 from app.rag.utils import parse_goal_response_format
@@ -177,7 +176,7 @@ class ChatFlow:
         # Init LLM.
         self._llm = self.engine_config.get_llama_llm(self.db_session)
         self._fast_llm = self.engine_config.get_fast_llama_llm(self.db_session)
-        self._fast_dspy_lm = get_dspy_lm_by_llama_llm(self._fast_llm)
+        self._fast_dspy_lm = self.engine_config.get_fast_dspy_lm(self.db_session)
 
         # Load knowledge bases.
         self.knowledge_bases = self.engine_config.get_knowledge_bases(self.db_session)
