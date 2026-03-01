@@ -5,7 +5,6 @@ import { SettingsField } from '@/components/settings/SettingsField';
 import { LinkArrayField } from '@/components/settings/LinkArrayField';
 import { z } from 'zod';
 import { ManagedMCPAgentsField } from '@/components/settings/ManagedMCPAgentsField';
-import { GrafanaMCPHostsField } from '@/components/settings/GrafanaMCPHostsField';
 import { PrometheusHostsField } from '@/components/settings/PrometheusHostsField';
 
 export function IntegrationsSettings ({ schema, showPostVerificationSettings }: { schema: AllSettings, showPostVerificationSettings: boolean }) {
@@ -89,29 +88,6 @@ export function PrometheusSettings ({ schema, hideTitle, disabled, onChanged }: 
         {props => <PrometheusHostsField {...props} />}
       </SettingsField>
       <p className="text-xs text-muted-foreground">Prometheus server URLs for metrics. Add by URL and port; queries run via the Prometheus HTTP API.</p>
-    </section>
-  );
-}
-
-export function GrafanaMCPSettings ({ schema, hideTitle, disabled, onChanged }: { schema: AllSettings, hideTitle?: boolean, disabled?: boolean, onChanged?: () => void }) {
-  return (
-    <section className="space-y-6">
-      {!hideTitle && <h2 className="text-lg font-medium">Grafana MCP Hosts</h2>}
-      <SettingsField
-        name="mcp_grafana_hosts"
-        item={schema.mcp_grafana_hosts}
-        arrayItemSchema={z.object({
-          name: z.string(),
-          grafana_url: z.string(),
-          grafana_api_key: z.string(),
-          mcp_ws_url: z.string().optional().nullable(),
-        })}
-        onChanged={onChanged}
-        disabled={disabled}
-      >
-        {props => <GrafanaMCPHostsField {...props} />}
-      </SettingsField>
-      <p className="text-xs text-muted-foreground">API keys are stored server-side and used to call Grafana MCP tools.</p>
     </section>
   );
 }

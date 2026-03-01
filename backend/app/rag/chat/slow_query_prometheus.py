@@ -10,11 +10,11 @@ from typing import Any
 from app.prometheus.client import prometheus_query_range
 from app.site_settings import SiteSetting
 
-# Reuse series extraction and summarization from Grafana module (same Prometheus response shape).
-from app.rag.chat.slow_query_grafana import (
-    _extract_series_values,
-    _summarize_cpu_series,
-    _summarize_panel_series,
+# Use shared series extraction/summarization for Prometheus response shape.
+from app.rag.chat.series_utils import (
+    extract_series_values,
+    summarize_cpu_series,
+    summarize_panel_series,
 )
 
 
@@ -197,8 +197,8 @@ def build_prometheus_tidb_metrics_analysis(
             if label in ("Duration (TiDB)", "CPU (TiDB)", "CPU (TiKV)")
         ]
     logger.info(
-        "Prometheus metrics to run (user_question=%s): %s",
-        user_question[:80] if user_question else None,
+        "Prometheus metrics to run (user_question=%s) metric_labels=%s",
+        user_question or "",
         [c[0] for c in metric_configs],
     )
 
@@ -232,7 +232,7 @@ def build_prometheus_tidb_metrics_analysis(
             continue
 
         if summary_type == "duration":
-            values = _extract_series_values(series)
+            values = extract_series_values(series)
             if not values:
                 metrics.append(f"{label}:\n- No data points.")
             else:
@@ -240,13 +240,13 @@ def build_prometheus_tidb_metrics_analysis(
                 max_ms = max(values) * 1000.0
                 metrics.append(f"{label}:\n- avg: {avg_ms:.2f} ms\n- max: {max_ms:.2f} ms")
         elif summary_type == "cpu":
-            text = _summarize_cpu_series(series, None, logger)
+            text = summarize_cpu_series(series, None, logger)
             metrics.append(f"{label}:\n{text}")
         elif summary_type == "gauge_per_instance":
-            text = _summarize_panel_series(series, per_instance=True)
+            text = summarize_panel_series(series, per_instance=True)
             metrics.append(f"{label}:\n{text}")
         else:
-            text = _summarize_panel_series(series, per_instance=False)
+            text = summarize_panel_series(series, per_instance=False)
             metrics.append(f"{label}:\n{text}")
 
     return "Prometheus TiDB metrics:\n\n" + "\n\n".join(metrics)

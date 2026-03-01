@@ -570,7 +570,7 @@ def maybe_run_db_slow_query(
     ]
     if not any(re.search(p, user_question, flags=re.IGNORECASE) for p in trigger_patterns):
         if not re.search(
-            r"\b(analy(?:s|z)e|summary|slow|grafana|prometheus|metrics?|monitoring)\b",
+            r"\b(analy(?:s|z)e|summary|slow|prometheus|metrics?|monitoring)\b",
             user_question,
             flags=re.IGNORECASE,
         ):
@@ -747,7 +747,7 @@ def maybe_run_db_slow_query(
                 if str((it or {}).get("text", "")).strip().lower() == db_host_name.lower():
                     href = str((it or {}).get("href", "")).strip()
                     if href.startswith("managed-grafana://"):
-                        logger.info("DB host_name points to Grafana MCP; clearing host_name=%s href=%s", db_host_name, href)
+                        logger.info("DB host_name points to legacy Grafana MCP; clearing host_name=%s href=%s", db_host_name, href)
                         db_host_name = ""
                         break
         valid_db_host = False
@@ -957,7 +957,11 @@ def maybe_run_db_slow_query(
                 ],
             )
 
-            grafana_text = build_prometheus_tidb_metrics_analysis(
+            logger.info(
+                "Prometheus metrics to run (user_question=%s)",
+                user_question,
+            )
+            metrics_text = build_prometheus_tidb_metrics_analysis(
                 start_ts,
                 end_ts,
                 prometheus_host_name,
@@ -1053,7 +1057,7 @@ def maybe_run_db_slow_query(
                 f"```sql\n{statement_sql}\n```\n\n"
                 "Statement summary (by digest):\n\n"
                 f"{stmt_md}\n\n"
-                f"{grafana_text}\n\n"
+                f"{metrics_text}\n\n"
                 "Query output (raw rows):\n\n"
                 f"{query_output_md}\n\n"
                 "Slow query summary (by digest):\n\n"
@@ -1072,7 +1076,7 @@ def maybe_run_db_slow_query(
                     len(response_text),
                     max_chars,
                     {
-                        "grafana": "Grafana anomalies (window)" in response_text,
+                        "metrics": "Prometheus metrics (window)" in response_text,
                         "ai_inputs": "AI inputs (query + plan JSON)" in response_text,
                         "ai_status": "AI status:" in response_text,
                         "recommendations": "Recommendations:" in response_text,
