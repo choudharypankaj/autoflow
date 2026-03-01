@@ -28,6 +28,10 @@ def resolve_llm(
             config.setdefault("is_chat_model", True)
             config.setdefault("context_window", 200 * 1000)
             return OpenAILike(model=model, api_key=credentials, **config)
+        case LLMProvider.ANTHROPIC:
+            from llama_index.llms.anthropic import Anthropic
+
+            return Anthropic(model=model, api_key=credentials, **config)
         case LLMProvider.BEDROCK:
             from llama_index.llms.bedrock_converse import BedrockConverse
 

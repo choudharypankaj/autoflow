@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class LLMProvider(str, enum.Enum):
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
     GEMINI = "gemini"
     VERTEX_AI = "vertex_ai"
     ANTHROPIC_VERTEX = "anthropic_vertex"  # Deprecated, use VERTEX_AI instead
@@ -43,6 +44,18 @@ llm_provider_options: List[LLMProviderOption] = [
         credentials_description="The API key of OpenAI, you can find it in https://platform.openai.com/api-keys",
         credentials_type="str",
         default_credentials="sk-****",
+    ),
+    LLMProviderOption(
+        provider=LLMProvider.ANTHROPIC,
+        provider_display_name="Anthropic",
+        provider_description="Anthropic builds reliable, interpretable, and steerable AI systems. Claude is a family of state-of-the-art models.",
+        provider_url="https://www.anthropic.com",
+        default_llm_model="claude-3-5-sonnet-20241022",
+        llm_model_description="Find model IDs at https://docs.anthropic.com/en/docs/about-claude/models",
+        credentials_display_name="Anthropic API Key",
+        credentials_description="The API key of Anthropic, you can find it in https://console.anthropic.com/settings/keys",
+        credentials_type="str",
+        default_credentials="sk-ant-****",
     ),
     LLMProviderOption(
         provider=LLMProvider.OPENAI_LIKE,
