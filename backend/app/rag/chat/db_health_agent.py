@@ -13,30 +13,33 @@ from app.rag.chat.slow_query_db import (
     parse_time_window_from_question,
 )
 from app.rag.chat.slow_query_prometheus import (
-    build_prometheus_tidb_metrics_analysis,
-    build_rca_summary_from_metrics,
+    get_prometheus_metadata,
+    list_prometheus_metric_names,
+    run_promql_range,
 )
 from app.site_settings import SiteSetting
 
 logger = logging.getLogger(__name__)
 
-DB_HEALTH_AGENT_SYSTEM = """You are a TiDB database health and performance assistant. You have access to tools to run SQL queries and fetch Prometheus metrics. Use them to answer the user's question and provide RCA (root cause analysis) or recommendations.
+DB_HEALTH_AGENT_SYSTEM = """You are a TiDB database health and performance assistant. You have access to tools to run SQL queries and to query Prometheus. Use logical reasoning to decide which metrics to fetch—there is no fixed list; you discover and choose.
 
 Available tools:
-- parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use this to get a time range from phrases like "last 30 minutes" or "2026-01-14 16:00:00 to 2026-01-14 17:00:00".
-- list_hosts: Input: {}. Returns available DB and Prometheus host names. Use one of these as host_name when calling other tools.
-- run_sql: Input: {"sql": "SELECT ...", "host_name": "optional host name"}. Runs a SQL query via MCP. Use for CLUSTER_SLOW_QUERY, statement summary, or other TiDB queries.
-- get_prometheus_metrics_and_rca: Input: {"start_ts": "YYYY-MM-DD HH:MM:SS", "end_ts": "YYYY-MM-DD HH:MM:SS", "user_question": "optional", "prometheus_host": "optional"}. Fetches Prometheus metrics and RCA summary for the time window.
+- parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use for "last 30 minutes" or "YYYY-MM-DD HH:MM:SS" start/end.
+- list_hosts: Input: {}. Returns available DB and Prometheus host names. Use these as host_name / prometheus_host in other tools.
+- run_sql: Input: {"sql": "SELECT ...", "host_name": "optional"}. Runs a SQL query via MCP (e.g. CLUSTER_SLOW_QUERY, statement summary).
+- list_prometheus_metric_names: Input: {"prometheus_host": "optional"}. Returns list of metric names from Prometheus. Use to discover what to query.
+- get_prometheus_metadata: Input: {"prometheus_host": "optional"}. Returns metadata (type, help) for each metric. Use to build correct PromQL (e.g. rate() for counters, histogram_quantile for histograms).
+- run_promql: Input: {"prometheus_host": "optional", "query": "PromQL expression", "start_ts": "YYYY-MM-DD HH:MM:SS", "end_ts": "YYYY-MM-DD HH:MM:SS"}. Runs one range query and returns a text summary. Call multiple times for different metrics.
 
-Respond in this exact format. Use one of the tools or give the final answer.
+Respond in this exact format. Use tools then give the final answer.
 Thought: <your reasoning>
 Action: <tool name>
 Action Input: <JSON object with tool parameters>
 Observation: (you will receive this after the tool runs)
 
-When you have enough information to answer, respond with:
+When you have enough information:
 Thought: I have enough to answer.
-Final Answer: <your full response to the user, including metrics summary, RCA, and recommendations>
+Final Answer: <your full response to the user. Synthesize the gathered data (SQL results, Prometheus metrics) and provide root cause analysis (RCA), recommendations, and a clear summary—all based on the information you collected.>
 """
 
 
@@ -95,32 +98,45 @@ def _run_sql(chat_flow: Any, sql: str, host_name: Optional[str] = None) -> str:
         return json.dumps({"error": str(e)})
 
 
-def _run_get_prometheus_metrics_and_rca(
+def _run_get_prometheus_metadata(prometheus_host: Optional[str] = None) -> str:
+    try:
+        meta = get_prometheus_metadata(prometheus_host)
+        if not meta:
+            return json.dumps({"error": "No Prometheus host or no metadata."})
+        out = {name: info for name, info in list(meta.items())[:200]}
+        return json.dumps(out, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("get_prometheus_metadata failed: %s", e)
+        return json.dumps({"error": str(e)})
+
+
+def _run_list_prometheus_metric_names(prometheus_host: Optional[str] = None) -> str:
+    try:
+        names = list_prometheus_metric_names(prometheus_host)
+        if not names:
+            return json.dumps({"error": "No Prometheus host or no metric names."})
+        return json.dumps({"metric_names": names[:500]}, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("list_prometheus_metric_names failed: %s", e)
+        return json.dumps({"error": str(e)})
+
+
+def _run_run_promql(
     chat_flow: Any,
+    prometheus_host: Optional[str],
+    query: str,
     start_ts: str,
     end_ts: str,
-    user_question: Optional[str] = None,
-    prometheus_host: Optional[str] = None,
 ) -> str:
+    if not query or not query.strip():
+        return json.dumps({"error": "query is required"})
     if not start_ts or not end_ts:
         return json.dumps({"error": "start_ts and end_ts are required (YYYY-MM-DD HH:MM:SS UTC)"})
     try:
-        metrics_text = build_prometheus_tidb_metrics_analysis(
-            start_ts,
-            end_ts,
-            prometheus_host,
-            logger,
-            cluster_hint=None,
-            session=chat_flow.db_session,
-            user_question=user_question,
-        )
-        rca_summary = build_rca_summary_from_metrics(metrics_text, user_question)
-        return json.dumps({
-            "metrics_text": metrics_text,
-            "rca_summary": rca_summary,
-        }, ensure_ascii=False)
+        text = run_promql_range(prometheus_host, query.strip(), start_ts, end_ts, logger=logger)
+        return json.dumps({"summary": text}, ensure_ascii=False)
     except Exception as e:
-        logger.exception("get_prometheus_metrics_and_rca failed: %s", e)
+        logger.exception("run_promql failed: %s", e)
         return json.dumps({"error": str(e)})
 
 
@@ -135,13 +151,17 @@ def _execute_tool(name: str, action_input: dict, chat_flow: Any) -> str:
             str((action_input or {}).get("sql", "")),
             action_input.get("host_name"),
         )
-    if name == "get_prometheus_metrics_and_rca":
-        return _run_get_prometheus_metrics_and_rca(
+    if name == "list_prometheus_metric_names":
+        return _run_list_prometheus_metric_names(action_input.get("prometheus_host"))
+    if name == "get_prometheus_metadata":
+        return _run_get_prometheus_metadata(action_input.get("prometheus_host"))
+    if name == "run_promql":
+        return _run_run_promql(
             chat_flow,
+            action_input.get("prometheus_host"),
+            str((action_input or {}).get("query", "")),
             str((action_input or {}).get("start_ts", "")),
             str((action_input or {}).get("end_ts", "")),
-            action_input.get("user_question"),
-            action_input.get("prometheus_host"),
         )
     return json.dumps({"error": f"Unknown tool: {name}"})
 

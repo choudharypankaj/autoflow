@@ -1,7 +1,6 @@
 """
-User-facing Prometheus metrics + RCA API.
-Allows clients (e.g. CLI, frontend) to fetch Prometheus metrics and RCA summary for a time range,
-similar to a readonly Prometheus proxy that returns processed metrics and recommendations.
+User-facing Prometheus metrics API. Returns metrics text for a time window.
+RCA and recommendations are provided by the chat DB health agent, not by this endpoint.
 """
 import logging
 from datetime import UTC, datetime, timedelta
@@ -10,15 +9,21 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import CurrentUserDep, SessionDep
-from app.rag.chat.slow_query_prometheus import (
-    build_prometheus_tidb_metrics_analysis,
-    build_rca_summary_from_metrics,
-)
+from app.rag.chat.slow_query_prometheus import run_promql_range
 from app.site_settings import SiteSetting
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Minimal default queries for the API only; the chat agent chooses metrics via run_promql.
+DEFAULT_API_QUERIES: list[tuple[str, str]] = [
+    ("Duration P99 (TiDB)", "histogram_quantile(0.99, sum(rate(tidb_server_handle_query_duration_seconds_bucket[5m])) by (le, instance)) or vector(0)"),
+    ("CPU (TiDB)", 'sum(rate(process_cpu_seconds_total{job=~"tidb.*"}[5m])) by (instance) * 100 or vector(0)'),
+    ("Memory (TiDB)", 'process_resident_memory_bytes{job=~"tidb.*"} / 1024 / 1024'),
+    ("QPS (TiDB)", "sum(rate(tidb_executor_statement_total[5m])) by (type) or vector(0)"),
+    ("Connections (TiDB)", "sum(tidb_server_connections) by (instance) or vector(0)"),
+]
 
 
 @router.get("/prometheus/metrics-and-rca")
@@ -28,13 +33,12 @@ def get_prometheus_metrics_and_rca(
     last_minutes: Optional[int] = Query(30, ge=1, le=10080, description="Time window in minutes (default 30)"),
     start_ts: Optional[str] = Query(None, description='Start time UTC "YYYY-MM-DD HH:MM:SS"'),
     end_ts: Optional[str] = Query(None, description='End time UTC "YYYY-MM-DD HH:MM:SS"'),
-    user_question: Optional[str] = Query(None, description="Optional question for metric selection (RCA discovery)"),
+    user_question: Optional[str] = Query(None, description="Reserved for future use"),
     prometheus_host_name: Optional[str] = Query(None, description="Prometheus host name from site settings"),
 ) -> dict[str, Any]:
     """
-    Fetch Prometheus metrics for a time window and return metrics text + RCA summary.
-    Intended for CLI or frontend to access Prometheus (readonly) and get recommendations/RCA.
-    Requires authentication.
+    Fetch Prometheus metrics for a time window. Returns metrics_text only.
+    For RCA and recommendations, use the chat DB health agent.
     """
     SiteSetting.update_db_cache()
     hosts = getattr(SiteSetting, "prometheus_hosts", None) or []
@@ -59,30 +63,18 @@ def get_prometheus_metrics_and_rca(
         end_ts = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
     name = prometheus_host_name
-    if name:
-        entry = next(
-            (it for it in hosts if str((it or {}).get("name", "")).strip().lower() == name.strip().lower()),
-            None,
-        )
-    else:
-        entry = hosts[0]
-        name = str((entry or {}).get("name", "")).strip()
+    if not name and hosts:
+        name = str((hosts[0] or {}).get("name", "")).strip()
 
-    metrics_text = build_prometheus_tidb_metrics_analysis(
-        start_ts,
-        end_ts,
-        name,
-        logger,
-        cluster_hint=None,
-        session=session,
-        user_question=user_question,
-    )
-    rca_summary = build_rca_summary_from_metrics(metrics_text, user_question)
+    parts: list[str] = []
+    for label, query in DEFAULT_API_QUERIES:
+        text = run_promql_range(name, query, start_ts, end_ts, logger=logger)
+        parts.append(f"{label}:\n{text}")
+    metrics_text = "Prometheus TiDB metrics:\n\n" + "\n\n".join(parts)
 
     return {
         "start": start_ts,
         "end": end_ts,
         "prometheus_host": name,
         "metrics_text": metrics_text,
-        "rca_summary": rca_summary,
     }
