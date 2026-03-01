@@ -154,8 +154,8 @@ class ChatEngineConfig(BaseModel):
             self._db_fast_llm.credentials,
         )
 
-    def get_fast_dspy_lm(self, session: Session) -> dspy.LM:
-        """Return a DSPy LM for fast/retrieval use. If the configured fast LLM does not support DSPy (e.g. Claude CLI), falls back to main LLM then default LLM."""
+    def get_fast_dspy_lm(self, session: Session) -> Optional[dspy.LM]:
+        """Return a DSPy LM for fast/retrieval use, or None if none of the configured LLMs support DSPy (e.g. when only Claude CLI is configured)."""
         for llama_llm in (
             self.get_fast_llama_llm(session),
             self.get_llama_llm(session),
@@ -165,9 +165,7 @@ class ChatEngineConfig(BaseModel):
                 return get_dspy_lm_by_llama_llm(llama_llm)
             except ValueError:
                 continue
-        raise ValueError(
-            "No DSPy-compatible LLM available. Configure at least one of main or fast LLM to use a provider that supports DSPy (e.g. OpenAI, Anthropic, Ollama)."
-        )
+        return None
 
     # FIXME: Reranker top_n should be config in the retrieval config.
     def get_reranker(
