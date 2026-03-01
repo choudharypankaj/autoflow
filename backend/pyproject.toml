@@ -72,6 +72,7 @@ dependencies = [
     "mcp>=0.1.0",
     "modelcontextprotocol>=0.1.0",
     "pytidb[mcp]>=0.0.13",
+    "llama-index-llms-anthropic>=0.3.0",
 ]
 
 
