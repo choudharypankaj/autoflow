@@ -6,13 +6,16 @@ from pydantic import BaseModel
 
 class LLMProvider(str, enum.Enum):
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"  # Removed from UI; kept for backward compat with existing DB rows
     GEMINI = "gemini"
     VERTEX_AI = "vertex_ai"
+    ANTHROPIC_VERTEX = "anthropic_vertex"  # Alias for Vertex AI; kept for backward compat
     OPENAI_LIKE = "openai_like"
     BEDROCK = "bedrock"
     OLLAMA = "ollama"
     GITEEAI = "giteeai"
     AZURE_OPENAI = "azure_openai"
+    CLAUDE_CLI = "claude_cli"  # Removed from UI; kept for backward compat with existing DB rows
 
 
 class LLMProviderOption(BaseModel):
