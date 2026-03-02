@@ -28,10 +28,6 @@ def resolve_llm(
             config.setdefault("is_chat_model", True)
             config.setdefault("context_window", 200 * 1000)
             return OpenAILike(model=model, api_key=credentials, **config)
-        case LLMProvider.ANTHROPIC:
-            from llama_index.llms.anthropic import Anthropic
-
-            return Anthropic(model=model, api_key=credentials, **config)
         case LLMProvider.BEDROCK:
             from llama_index.llms.bedrock_converse import BedrockConverse
 
@@ -52,7 +48,7 @@ def resolve_llm(
             from llama_index.llms.google_genai import GoogleGenAI
 
             return GoogleGenAI(model=model, api_key=credentials, **config)
-        case LLMProvider.VERTEX_AI | LLMProvider.ANTHROPIC_VERTEX:
+        case LLMProvider.VERTEX_AI:
             from llama_index.llms.google_genai import GoogleGenAI
             from llama_index.llms.google_genai.base import VertexAIConfig
             from google.oauth2 import service_account

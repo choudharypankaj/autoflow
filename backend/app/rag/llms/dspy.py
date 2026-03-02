@@ -28,13 +28,6 @@ def get_dspy_lm_by_llama_llm(llama_llm: BaseLLM) -> dspy.LM:
                 model_type="chat" if llama_llm.is_chat_model else "text",
                 num_retries=3,
             )
-        case "Anthropic_LLM":
-            return dspy.LM(
-                model=f"anthropic/{llama_llm.model}",
-                max_tokens=llama_llm.max_tokens,
-                api_key=llama_llm.api_key,
-                num_retries=3,
-            )
         case "GenAI":
             if "models/" in llama_llm.model:
                 # For Gemini

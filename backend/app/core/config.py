@@ -105,10 +105,6 @@ class Settings(BaseSettings):
 
     EVALUATION_OPENAI_API_KEY: str | None = None
 
-    # Optional: use Claude (Anthropic Messages API with tool use) for DB health / Prometheus analysis in chat.
-    # If set, the DB health agent uses this key and claude-3-5-sonnet; otherwise uses the chat engine's LLM with ReAct.
-    ANTHROPIC_DB_HEALTH_AGENT_API_KEY: SecretStr | None = None
-
     @computed_field  # type: ignore[misc]
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> MySQLDsn:
