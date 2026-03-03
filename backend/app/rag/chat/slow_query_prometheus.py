@@ -1,13 +1,15 @@
 """
 Prometheus primitives for the DB health agent. The agent uses logical reasoning to choose
 which metrics to query—no predefined metric list. RCA is produced by the AI agent from gathered data.
-Provides: list metric names, get metadata, run arbitrary PromQL range query.
+Provides: list metric names, list labels, label values, get metadata, run arbitrary PromQL range query.
 """
 import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from app.prometheus.client import (
+    prometheus_labels,
+    prometheus_label_values,
     prometheus_metadata,
     prometheus_metric_names,
     prometheus_query_range,
@@ -46,6 +48,38 @@ def list_prometheus_metric_names(prometheus_host: str | None = None) -> list[str
         return []
     try:
         return prometheus_metric_names(base_url, timeout=30, bearer_token=bearer_token)
+    except Exception:
+        return []
+
+
+def list_prometheus_labels(prometheus_host: str | None = None) -> list[str]:
+    """Fetch all label names from Prometheus (GET /api/v1/labels)."""
+    entry = _get_prometheus_entry(prometheus_host)
+    if not entry:
+        return []
+    base_url = str((entry or {}).get("prometheus_url", "")).strip().rstrip("/")
+    bearer_token = str((entry or {}).get("bearer_token", "")).strip() or None
+    if not base_url or not base_url.startswith("http"):
+        return []
+    try:
+        return prometheus_labels(base_url, timeout=30, bearer_token=bearer_token)
+    except Exception:
+        return []
+
+
+def get_prometheus_label_values(prometheus_host: str | None, label_name: str) -> list[str]:
+    """Fetch all values for a label (GET /api/v1/label/<name>/values)."""
+    entry = _get_prometheus_entry(prometheus_host)
+    if not entry:
+        return []
+    base_url = str((entry or {}).get("prometheus_url", "")).strip().rstrip("/")
+    bearer_token = str((entry or {}).get("bearer_token", "")).strip() or None
+    if not base_url or not base_url.startswith("http") or not (label_name or "").strip():
+        return []
+    try:
+        return prometheus_label_values(
+            base_url, label_name.strip(), timeout=30, bearer_token=bearer_token
+        )
     except Exception:
         return []
 

@@ -22,18 +22,11 @@ def prometheus_metric_names(
     timeout: int = 30,
     bearer_token: str | None = None,
 ) -> list[str]:
-    """
-    Fetch all metric names from Prometheus (GET /api/v1/label/__name__/values).
-    Used for RCA discovery so we can pick metrics relevant to the user's question.
-    """
+    """Fetch all metric names from Prometheus (GET /api/v1/label/__name__/values)."""
     base = base_url.strip().rstrip("/")
     url = f"{base}/api/v1/label/__name__/values"
     try:
-        resp = requests.get(
-            url,
-            headers=_headers(bearer_token),
-            timeout=timeout,
-        )
+        resp = requests.get(url, headers=_headers(bearer_token), timeout=timeout)
     except Exception as e:
         logger.exception("Prometheus metric names failed: url=%s error=%s", url, e)
         raise RuntimeError(f"Prometheus metric names failed: {e}") from e
@@ -41,12 +34,60 @@ def prometheus_metric_names(
         logger.error("Prometheus metric names error: status=%s body=%s", resp.status_code, resp.text[:500])
         raise RuntimeError(f"Prometheus API error: {resp.status_code} {resp.text}")
     data = resp.json()
-    if not isinstance(data, dict):
-        return []
-    vals = data.get("data")
+    vals = data.get("data") if isinstance(data, dict) else None
     if not isinstance(vals, list):
         return []
     return [str(v).strip() for v in vals if v and str(v).strip()]
+
+
+def prometheus_labels(
+    base_url: str,
+    *,
+    timeout: int = 30,
+    bearer_token: str | None = None,
+) -> list[str]:
+    """Fetch all label names from Prometheus (GET /api/v1/labels)."""
+    base = base_url.strip().rstrip("/")
+    url = f"{base}/api/v1/labels"
+    try:
+        resp = requests.get(url, headers=_headers(bearer_token), timeout=timeout)
+    except Exception as e:
+        logger.exception("Prometheus labels failed: url=%s error=%s", url, e)
+        raise RuntimeError(f"Prometheus labels failed: {e}") from e
+    if resp.status_code >= 400:
+        logger.error("Prometheus labels error: status=%s body=%s", resp.status_code, resp.text[:500])
+        raise RuntimeError(f"Prometheus API error: {resp.status_code} {resp.text}")
+    data = resp.json()
+    vals = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(vals, list):
+        return []
+    return [str(v).strip() for v in vals if v and str(v).strip()]
+
+
+def prometheus_label_values(
+    base_url: str,
+    label_name: str,
+    *,
+    timeout: int = 30,
+    bearer_token: str | None = None,
+) -> list[str]:
+    """Fetch all values for a label (GET /api/v1/label/<name>/values)."""
+    base = base_url.strip().rstrip("/")
+    name = label_name.strip()
+    url = f"{base}/api/v1/label/{name}/values"
+    try:
+        resp = requests.get(url, headers=_headers(bearer_token), timeout=timeout)
+    except Exception as e:
+        logger.exception("Prometheus label values failed: url=%s label=%s error=%s", url, name, e)
+        raise RuntimeError(f"Prometheus label values failed: {e}") from e
+    if resp.status_code >= 400:
+        logger.error("Prometheus label values error: status=%s body=%s", resp.status_code, resp.text[:500])
+        raise RuntimeError(f"Prometheus API error: {resp.status_code} {resp.text}")
+    data = resp.json()
+    vals = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(vals, list):
+        return []
+    return [str(v).strip() for v in vals if v is not None and str(v).strip()]
 
 
 def prometheus_metadata(

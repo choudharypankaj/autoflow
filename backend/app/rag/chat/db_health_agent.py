@@ -11,7 +11,9 @@ from llama_index.core import PromptTemplate
 
 from app.rag.chat.slow_query_db import parse_time_window_from_question
 from app.rag.chat.slow_query_prometheus import (
+    get_prometheus_label_values,
     get_prometheus_metadata,
+    list_prometheus_labels,
     list_prometheus_metric_names,
     run_promql_range,
 )
@@ -21,12 +23,16 @@ logger = logging.getLogger(__name__)
 
 DB_HEALTH_AGENT_SYSTEM = """You are a TiDB cluster health and performance assistant. You perform analysis using only Prometheus metrics. Do not run SQL or slow-query tools—use only the Prometheus-related tools below.
 
+Important: Before running any run_promql query, first fetch what Prometheus has: (1) list_prometheus_metric_names to get metric names, (2) list_prometheus_labels to get label names, (3) get_prometheus_metadata to get metric types and help. Then run run_promql only against the obtained metrics and use the obtained labels in your PromQL (e.g. for filtering by instance, job, or other labels).
+
 Available tools:
 - parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use for "last 6 hours", "last 30 minutes", or "YYYY-MM-DD HH:MM:SS" start/end.
 - list_hosts: Input: {}. Returns available Prometheus host names (use as prometheus_host in other tools).
-- list_prometheus_metric_names: Input: {"prometheus_host": "optional"}. Returns list of metric names from Prometheus. Use to discover what to query.
+- list_prometheus_metric_names: Input: {"prometheus_host": "optional"}. Returns list of metric names from Prometheus. Call this first to see what metrics exist.
+- list_prometheus_labels: Input: {"prometheus_host": "optional"}. Returns list of label names (e.g. instance, job, le). Call this to know which labels you can use in PromQL.
+- get_prometheus_label_values: Input: {"prometheus_host": "optional", "label_name": "e.g. instance or job"}. Returns list of values for that label. Use to build correct filters.
 - get_prometheus_metadata: Input: {"prometheus_host": "optional"}. Returns metadata (type, help) for each metric. Use to build correct PromQL (e.g. rate() for counters, histogram_quantile for histograms).
-- run_promql: Input: {"prometheus_host": "optional", "query": "PromQL expression", "start_ts": "YYYY-MM-DD HH:MM:SS", "end_ts": "YYYY-MM-DD HH:MM:SS"}. Runs one range query and returns a text summary. Call multiple times for different metrics.
+- run_promql: Input: {"prometheus_host": "optional", "query": "PromQL expression", "start_ts": "YYYY-MM-DD HH:MM:SS", "end_ts": "YYYY-MM-DD HH:MM:SS"}. Runs one range query and returns a text summary. Use only metric names and labels you obtained from the tools above. Call multiple times for different metrics.
 
 Respond in this exact format. Use tools then give the final answer.
 Thought: <your reasoning>
@@ -75,6 +81,28 @@ def _run_list_prometheus_metric_names(prometheus_host: Optional[str] = None) -> 
         return json.dumps({"error": str(e)})
 
 
+def _run_list_prometheus_labels(prometheus_host: Optional[str] = None) -> str:
+    try:
+        labels = list_prometheus_labels(prometheus_host)
+        if not labels:
+            return json.dumps({"error": "No Prometheus host or no labels."})
+        return json.dumps({"labels": labels}, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("list_prometheus_labels failed: %s", e)
+        return json.dumps({"error": str(e)})
+
+
+def _run_get_prometheus_label_values(prometheus_host: Optional[str], label_name: str) -> str:
+    try:
+        values = get_prometheus_label_values(prometheus_host, label_name or "")
+        if not values and (prometheus_host or label_name):
+            return json.dumps({"error": "No Prometheus host, missing label_name, or no values."})
+        return json.dumps({"label_name": label_name or "", "values": values[:500]}, ensure_ascii=False)
+    except Exception as e:
+        logger.exception("get_prometheus_label_values failed: %s", e)
+        return json.dumps({"error": str(e)})
+
+
 def _run_run_promql(
     chat_flow: Any,
     prometheus_host: Optional[str],
@@ -101,6 +129,13 @@ def _execute_tool(name: str, action_input: dict, chat_flow: Any) -> str:
         return _run_list_hosts()
     if name == "list_prometheus_metric_names":
         return _run_list_prometheus_metric_names(action_input.get("prometheus_host"))
+    if name == "list_prometheus_labels":
+        return _run_list_prometheus_labels(action_input.get("prometheus_host"))
+    if name == "get_prometheus_label_values":
+        return _run_get_prometheus_label_values(
+            action_input.get("prometheus_host"),
+            str((action_input or {}).get("label_name", "")),
+        )
     if name == "get_prometheus_metadata":
         return _run_get_prometheus_metadata(action_input.get("prometheus_host"))
     if name == "run_promql":
