@@ -21,9 +21,20 @@ from app.site_settings import SiteSetting
 
 logger = logging.getLogger(__name__)
 
+# Key Prometheus metrics per component (use with job= or instance= filters). Prefer these when building PromQL.
+PROMETHEUS_METRICS_REF = """
+Key metrics by component (filter by job/labels as in your Prometheus):
+- PD: pd_cluster_status, service_member_role, process_cpu_seconds_total
+- TiDB: tidb_server_handle_query_duration_seconds_bucket, tidb_executor_statement_total, process_cpu_seconds_total
+- TiKV: tikv_store_size_bytes, process_cpu_seconds_total, tikv_grpc_msg_duration_seconds_count
+Use rate() for counters (e.g. process_cpu_seconds_total); histogram_quantile() for _bucket metrics.
+"""
+
 DB_HEALTH_AGENT_SYSTEM = """You are a TiDB cluster health and performance assistant. You perform analysis using only Prometheus metrics. Do not run SQL or slow-query tools—use only the Prometheus-related tools below.
 
 Important: Before running any run_promql query, first fetch what Prometheus has: (1) list_prometheus_metric_names to get metric names, (2) list_prometheus_labels to get label names, (3) get_prometheus_metadata to get metric types and help. Then run run_promql only against the obtained metrics and use the obtained labels in your PromQL (e.g. for filtering by instance, job, or other labels).
+
+""" + PROMETHEUS_METRICS_REF + """
 
 Available tools:
 - parse_time_window: Input: {"question": "user question"}. Returns {"start_ts": "...", "end_ts": "..."} (UTC) or {"error": "..."}. Use for "last 6 hours", "last 30 minutes", or "YYYY-MM-DD HH:MM:SS" start/end.
